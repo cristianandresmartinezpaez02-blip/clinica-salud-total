@@ -10,13 +10,18 @@ Sitio web y sistema de gestión clínica desarrollado en **PHP + MySQL**: págin
 - Inicio con accesos rápidos, servicios, información para pacientes, blog y mapa.
 - Catálogo de servicios con buscador y solicitud de cita.
 - Agendamiento de citas con especialidades y disponibilidad en tiempo real.
-- Pacientes y visitantes, Investigaciones, Transparencia, Donaciones y Contáctenos.
-- Diseño adaptable a móvil, cabecera y pie de página compartidos.
+- Pacientes y visitantes, Investigaciones, Donaciones y Contáctenos.
+- Transparencia con informes de gestión, actas y política de tratamiento de datos (Ley 1581 de 2012).
+- Diseño adaptable a móvil con cabecera, pie y paleta de colores comunes a todo el sitio.
+- Página 404 propia, `robots.txt` y `sitemap.xml`.
 
 **Sistema interno (`log_in/`)**
 - Inicio de sesión con verificación de identidad (tipo y número de documento).
 - Registro de pacientes con foto del documento y selfie, aprobados por un administrador.
 - Paneles por rol: administración de usuarios, citas, mensajes y donaciones; diagnósticos y fórmulas médicas; enfermería; farmacia y facturación; portal del paciente.
+- Diseño unificado para los cinco paneles, con menú lateral adaptable a celular y tema claro u oscuro.
+- Resumen del administrador con tareas pendientes (identidades por verificar, citas por aprobar, mensajes sin responder).
+- Secciones *Mi perfil* (datos y contraseña) y *Configuración* (tema y animaciones) en los paneles del personal.
 - Notificaciones en el panel, por correo (Gmail) y opcionalmente SMS/WhatsApp (Twilio).
 
 ## Instalación (XAMPP)
@@ -27,7 +32,7 @@ Sitio web y sistema de gestión clínica desarrollado en **PHP + MySQL**: págin
 4. Copie `config/config.example.php` como `config/config.local.php` y ajuste sus datos (base de datos, correo, Twilio).
 5. Abra <http://localhost/proyecto_productivo/>.
 
-Si instala el proyecto en otra carpeta, cambie `app.base_url` en `config/config.local.php`.
+Si instala el proyecto en otra carpeta, cambie `app.base_url` en `config/config.local.php` y la ruta de `ErrorDocument` en `.htaccess`.
 
 ## Usuarios de demostración
 
@@ -62,11 +67,16 @@ Imagenes/          Imágenes del sitio
 - Consultas preparadas (`mysqli` + `bind_param`).
 - Sesión con cookies `HttpOnly` y `SameSite=Strict`, regeneración de ID al iniciar sesión.
 - Límite de 5 intentos fallidos de inicio de sesión.
+- Protección CSRF en el inicio de sesión y en todos los formularios y acciones de los paneles (token por sesión inyectado automáticamente).
+- Formularios públicos protegidos contra spam: campo trampa, tiempo mínimo de llenado firmado y límite de envíos.
+- Cada visitante solo ve la confirmación de la cita que él mismo creó.
 - El registro público solo crea pacientes; el personal lo crea un administrador.
 - Subidas de imágenes validadas por contenido, con nombre aleatorio y sin ejecución de scripts en `uploads/`.
 - Las fotos de documentos de identidad solo las puede ver un administrador.
 - Credenciales fuera del código fuente (`config/config.local.php`).
+- Zona horaria de Colombia (`America/Bogota`) en PHP y MySQL.
+- Cabeceras de seguridad y bloqueo de carpetas internas vía `.htaccess`.
 
 ## Tecnologías
 
-PHP 8, MySQL/MariaDB, HTML5, CSS3, JavaScript, Bootstrap 5 (paneles internos).
+PHP 8, MySQL/MariaDB, HTML5, CSS3, JavaScript, Bootstrap 5 e íconos de Bootstrap Icons y Font Awesome Free.

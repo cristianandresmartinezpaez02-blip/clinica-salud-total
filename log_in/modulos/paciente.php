@@ -7,6 +7,11 @@ if (!isset($_SESSION['id_usuario']) || $_SESSION['rol'] !== 'paciente') {
     exit();
 }
 
+// Protección CSRF: token en formularios y enlaces de acción
+require_once __DIR__ . '/../includes/seguridad_panel.php';
+protegerPanel();
+require_once __DIR__ . '/../includes/panel_layout.php';
+
 require_once "../conexion/conexion.php";
 require_once "../conexion/notificaciones_servicio.php";
 require_once "../conexion/farmacia_servicio.php";
@@ -171,6 +176,9 @@ function claseNotificacion(?string $tipo): string {
         default            => '',
     };
 }
+
+require_once __DIR__ . '/../includes/perfil_config_ui.php';
+require_once __DIR__ . '/../conexion/perfil_servicio.php';
 ?>
 
 <!DOCTYPE html>
@@ -180,7 +188,7 @@ function claseNotificacion(?string $tipo): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Portal Paciente - Clínica Salud Total</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f4f7f5; }
         .sidebar {
@@ -228,12 +236,13 @@ function claseNotificacion(?string $tipo): string {
         .notif-card pre { white-space: pre-line; font-family: inherit; font-size: .9rem; margin: 8px 0 0; background: transparent; border: 0; padding: 0; }
         .detalle-cita { background: #f8f9fa; border-radius: 8px; padding: 10px; font-size: .85rem; }
     </style>
+    <?php echo panelHead(); ?>
 </head>
-<body>
+<body class="<?php echo e(clasesTemaBody()); ?>">
 <div class="container-fluid">
     <div class="row">
         <nav class="col-md-2 d-none d-md-flex sidebar">
-            <div class="sidebar-brand"><i class="bi bi-person-heart"></i> Portal Paciente</div>
+            <?php echo panelBrand('Portal del paciente'); ?>
             <div class="sidebar-nav">
                 <a href="#" class="active" data-page="dashboardPage"><i class="bi bi-house-door"></i> Inicio</a>
                 <a href="#" data-page="citasPage"><i class="bi bi-calendar-check"></i> Mis Citas</a>
@@ -245,9 +254,7 @@ function claseNotificacion(?string $tipo): string {
                 <a href="#" data-page="facturasPage"><i class="bi bi-receipt"></i> Mis Facturas</a>
                 <a href="#" data-page="perfilPage"><i class="bi bi-person-gear"></i> Mi Perfil</a>
             </div>
-            <div class="sidebar-footer">
-                <a href="../conexion/cerrar_sesion.php"><i class="bi bi-box-arrow-right"></i> Cerrar Sesión</a>
-            </div>
+            <?php echo panelSidebarFooter(false); ?>
         </nav>
 
         <main class="col-md-10 ms-sm-auto col-lg-10 px-md-4">
@@ -607,5 +614,6 @@ function claseNotificacion(?string $tipo): string {
         showPage(defaultPage);
     }
 </script>
+<?php echo panelScripts(); ?>
 </body>
 </html>

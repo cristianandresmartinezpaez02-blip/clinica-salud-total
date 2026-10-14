@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>Transparencia | Clínica Salud Total</title>
+  <meta name="description" content="Indicadores institucionales, informes de gestión, actas y políticas de la Clínica Salud Total.">
+  <meta name="theme-color" content="#0b5394">
 
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
 <style>
 
@@ -14,7 +16,7 @@
 margin:0;
 padding:0;
 box-sizing:border-box;
-font-family:'Poppins',sans-serif;
+font-family:'Inter',system-ui,sans-serif;
 }
 
 body{
@@ -23,7 +25,7 @@ color:#1a2b49;
 }
 
 header{
-background:linear-gradient(135deg,#007BFF,#00BFFF);
+background:linear-gradient(135deg,#0b5394,#12a58e);
 color:white;
 padding:80px 10%;
 text-align:center;
@@ -56,7 +58,7 @@ transition:.3s;
 
 .btn-primary{
 background:white;
-color:#007BFF;
+color:#0b5394;
 }
 
 .btn-primary:hover{
@@ -70,7 +72,7 @@ color:white;
 
 .btn-secondary:hover{
 background:white;
-color:#007BFF;
+color:#0b5394;
 }
 
 .section{
@@ -81,7 +83,7 @@ padding:70px 10%;
 text-align:center;
 font-size:2rem;
 margin-bottom:40px;
-color:#007BFF;
+color:#0b5394;
 }
 
 .stats{
@@ -106,7 +108,7 @@ transform:translateY(-10px);
 .counter{
 font-size:2.5rem;
 font-weight:700;
-color:#007BFF;
+color:#0b5394;
 }
 
 .about{
@@ -122,8 +124,11 @@ border-radius:20px;
 box-shadow:0 10px 30px rgba(0,0,0,.08);
 }
 
+.doc-link{display:block;text-decoration:none;color:inherit;transition:transform .25s, box-shadow .25s;}
+.doc-link:hover{transform:translateY(-6px);box-shadow:0 18px 40px rgba(11,83,148,.15);}
+.doc-link span{display:inline-block;margin-top:14px;font-weight:600;color:#0b5394;}
 .card h3{
-color:#007BFF;
+color:#0b5394;
 margin-bottom:15px;
 }
 
@@ -150,7 +155,7 @@ overflow:hidden;
 
 .bar{
 height:100%;
-background:linear-gradient(90deg,#007BFF,#00BFFF);
+background:linear-gradient(90deg,#0b5394,#12a58e);
 border-radius:50px;
 }
 
@@ -171,7 +176,7 @@ box-shadow:0 10px 30px rgba(0,0,0,.08);
 .avatar{
 width:100px;
 height:100px;
-background:#007BFF;
+background:#0b5394;
 border-radius:50%;
 margin:auto;
 margin-bottom:15px;
@@ -201,7 +206,7 @@ resize:none;
 }
 
 button{
-background:#007BFF;
+background:#0b5394;
 color:white;
 border:none;
 padding:15px;
@@ -254,7 +259,7 @@ footer {
 
 .footer-section h3 {
     margin-bottom: 15px;
-    color: #7fd3ff;
+    color: #7cd6c6;
 }
 
 .footer-section p {
@@ -269,7 +274,7 @@ footer {
 }
 
 .footer-section a:hover {
-    color: #7fd3ff;
+    color: #7cd6c6;
     padding-left: 5px;
 }
 
@@ -357,7 +362,7 @@ footer {
 }
 
 .btn-ingresar {
-  background-color: #00a8e8;
+  background-color: #0e8a76;
   color: white;
   font-size: 20px;
   padding: 14px 28px;
@@ -485,19 +490,19 @@ garantizando calidad, seguridad y atención humanizada.
 <div class="team">
 
 <div class="team-card">
-    <img src="../imagenes/director general.jpg" alt="Director General" class="avatar">
+    <img src="../../Imagenes/director general.jpg" alt="Director General" class="avatar">
     <h3>Director General</h3>
     <p>Gestión institucional y estrategia.</p>
 </div>
 
 <div class="team-card">
-    <img src="../imagenes/director medico.jpg" alt="Director Médico" class="avatar">
+    <img src="../../Imagenes/director medico.jpg" alt="Director Médico" class="avatar">
     <h3>Director Médico</h3>
     <p>Supervisión de servicios clínicos.</p>
 </div>
 
 <div class="team-card">
-    <img src="../imagenes/jefe de enfermeria.jpg" alt="Jefa de Enfermería" class="avatar">
+    <img src="../../Imagenes/jefe de enfermeria.jpg" alt="Jefa de Enfermería" class="avatar">
     <h3>Jefa de Enfermería</h3>
     <p>Coordinación de atención asistencial.</p>
 </div>
@@ -530,12 +535,24 @@ Enviar Mensaje
 
 </section>
 
+<section class="section" id="documentos">
+
+<h2 class="title">Documentos institucionales</h2>
+
+<div class="about">
+<a class="card doc-link" href="informes.php"><h3>Informes de gestión</h3><p>Resultados asistenciales, financieros, indicadores de calidad y PQRS.</p><span>Ver informes &rarr;</span></a>
+<a class="card doc-link" href="actas.php"><h3>Actas institucionales</h3><p>Decisiones de la junta directiva y de los comités de ética, calidad y seguridad.</p><span>Ver actas &rarr;</span></a>
+<a class="card doc-link" href="politicas.php"><h3>Tratamiento de datos</h3><p>Cómo protegemos su información y cómo ejercer sus derechos como titular.</p><span>Leer política &rarr;</span></a>
+</div>
+
+</section>
+
 <section class="section">
 
 <h2 class="title">Preguntas Frecuentes</h2>
 
 <div class="faq-item">
-<strong>¿Cómo protege PSALUD mis datos?</strong>
+<strong>¿Cómo protege la clínica mis datos?</strong>
 <p>Aplicamos protocolos de seguridad y confidencialidad para toda la información registrada.</p>
 </div>
 

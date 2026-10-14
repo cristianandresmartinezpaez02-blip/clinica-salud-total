@@ -5,7 +5,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Salud Compartida — Donaciones (Dinero y Biológicas)</title>
+<title>Salud compartida: donaciones | Clínica Salud Total</title>
+  <meta name="description" content="Apoye campañas para equipos, medicamentos y becas, o agende su donación de sangre, médula, tejidos u órganos.">
+  <meta name="theme-color" content="#0b5394">
 <style>
 
   footer {
@@ -147,11 +149,11 @@
 /* ===================== Reset & Variables ===================== */
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
-body{font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background:#f4f7fb;color:#0b2540;line-height:1.5}
+body{font-family: "Inter", system-ui, "Segoe UI", Roboto, sans-serif; background:#f4f7fb;color:#0b2540;line-height:1.5}
 a{color:inherit;text-decoration:none}
 img{max-width:100%;display:block}
 :root{
-  --primary:#0e6ba8; --primary-700:#0b558d; --accent:#5c4db1; --muted:#6b7280;
+  --primary:#0b5394; --primary-700:#0b558d; --accent:#12a58e; --muted:#6b7280;
   --bg:#f5f8fb; --card:#fff; --glass:rgba(255,255,255,0.6);
   --radius-lg:14px; --radius-md:10px; --shadow:0 8px 30px rgba(11,37,64,0.08);
   --container:1200px;
@@ -266,7 +268,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
   <div class="grid grid-responsive" id="dinero-cards" aria-live="polite">
 
     <article class="card" data-service="Equipamiento UCI Pediátrica" role="article">
-      <div class="card-media"><img src="../imagenes/pediatria.jpeg" alt="Equipamiento UCI Pediátrica image"></div>
+      <div class="card-media"><img src="../../Imagenes/pediatria.jpeg" alt="Equipamiento UCI Pediátrica image"></div>
       <div class="card-body">
         <span class="tag">Pediatría</span>
         <div class="card-title">Equipamiento UCI Pediátrica</div>
@@ -282,7 +284,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-service="Becas medicamentos oncológicos" role="article">
-      <div class="card-media"><img src="../imagenes/medicamentos oncologicos.jpeg" alt="Becas medicamentos oncológicos image"></div>
+      <div class="card-media"><img src="../../Imagenes/medicamentos oncologicos.jpeg" alt="Becas medicamentos oncológicos image"></div>
       <div class="card-body">
         <span class="tag">Oncología</span>
         <div class="card-title">Becas medicamentos oncológicos</div>
@@ -298,7 +300,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-service="Instrumental quirúrgico" role="article">
-      <div class="card-media"><img src="../imagenes/instrumental quirurgico.png" alt="Instrumental quirúrgico image"></div>
+      <div class="card-media"><img src="../../Imagenes/instrumental quirurgico.png" alt="Instrumental quirúrgico image"></div>
       <div class="card-body">
         <span class="tag">Cirugía</span>
         <div class="card-title">Instrumental quirúrgico</div>
@@ -314,7 +316,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-service="Monitores UCI Adultos" role="article">
-      <div class="card-media"><img src="../imagenes/uci.jpeg" alt="Monitores UCI Adultos image"></div>
+      <div class="card-media"><img src="../../Imagenes/uci.jpeg" alt="Monitores UCI Adultos image"></div>
       <div class="card-body">
         <span class="tag">UCI</span>
         <div class="card-title">Monitores UCI Adultos</div>
@@ -330,7 +332,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-service="Camas hospitalarias" role="article">
-      <div class="card-media"><img src="../imagenes/camas hospi.jpeg" alt="Camas hospitalarias image"></div>
+      <div class="card-media"><img src="../../Imagenes/camas hospi.jpeg" alt="Camas hospitalarias image"></div>
       <div class="card-body">
         <span class="tag">Hospitalización</span>
         <div class="card-title">Camas hospitalarias</div>
@@ -346,7 +348,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-service="Vacunación comunitaria" role="article">
-      <div class="card-media"><img src="../imagenes/vacu comunitaria.jpeg" alt="Vacunación comunitaria image"></div>
+      <div class="card-media"><img src="../../Imagenes/vacu comunitaria.jpeg" alt="Vacunación comunitaria image"></div>
       <div class="card-body">
         <span class="tag">Prevención</span>
         <div class="card-title">Vacunación comunitaria</div>
@@ -362,7 +364,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-service="Cirugías catarata" role="article">
-      <div class="card-media"><img src="../imagenes/catarata.jpeg" alt="Cirugías catarata image"></div>
+      <div class="card-media"><img src="../../Imagenes/catarata.jpeg" alt="Cirugías catarata image"></div>
       <div class="card-body">
         <span class="tag">Oftalmología</span>
         <div class="card-title">Cirugías catarata</div>
@@ -378,7 +380,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-service="Atención psicológica" role="article">
-      <div class="card-media"><img src="../imagenes/psicologia hospital.jpeg" alt="Atención psicológica image"></div>
+      <div class="card-media"><img src="../../Imagenes/psicologia hospital.jpeg" alt="Atención psicológica image"></div>
       <div class="card-body">
         <span class="tag">Salud mental</span>
         <div class="card-title">Atención psicológica</div>
@@ -394,7 +396,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-service="Telemedicina" role="article">
-      <div class="card-media"><img src="../imagenes/telemedicina.jpeg" alt="Telemedicina image"></div>
+      <div class="card-media"><img src="../../Imagenes/telemedicina.jpeg" alt="Telemedicina image"></div>
       <div class="card-body">
         <span class="tag">Tecnología</span>
         <div class="card-title">Telemedicina</div>
@@ -410,7 +412,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-service="Equipos de laboratorio" role="article">
-      <div class="card-media"><img src="../imagenes/equp labo.jpeg" alt="Equipos de laboratorio image"></div>
+      <div class="card-media"><img src="../../Imagenes/equp labo.jpeg" alt="Equipos de laboratorio image"></div>
       <div class="card-body">
         <span class="tag">Laboratorio</span>
         <div class="card-title">Equipos de laboratorio</div>
@@ -426,7 +428,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-service="Rehabilitación" role="article">
-      <div class="card-media"><img src="../imagenes/rehabilitacion disica.jpeg" alt="Rehabilitación image"></div>
+      <div class="card-media"><img src="../../Imagenes/rehabilitacion disica.jpeg" alt="Rehabilitación image"></div>
       <div class="card-body">
         <span class="tag">Rehabilitación</span>
         <div class="card-title">Rehabilitación</div>
@@ -442,7 +444,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-service="Fondo apoyo trasplantes" role="article">
-      <div class="card-media"><img src="../imagenes/transplates.jpeg" alt="Fondo apoyo trasplantes image"></div>
+      <div class="card-media"><img src="../../Imagenes/transplates.jpeg" alt="Fondo apoyo trasplantes image"></div>
       <div class="card-body">
         <span class="tag">Trasplantes</span>
         <div class="card-title">Fondo apoyo trasplantes</div>
@@ -458,7 +460,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-service="Equipos urgencias" role="article">
-      <div class="card-media"><img src="../imagenes/equip de urgencias.jpeg" alt="Equipos urgencias image"></div>
+      <div class="card-media"><img src="../../Imagenes/equip de urgencias.jpeg" alt="Equipos urgencias image"></div>
       <div class="card-body">
         <span class="tag">Urgencias</span>
         <div class="card-title">Equipos urgencias</div>
@@ -474,7 +476,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-service="Becas formación" role="article">
-      <div class="card-media"><img src="../imagenes/mi beca.jpeg" alt="Becas formación image"></div>
+      <div class="card-media"><img src="../../Imagenes/mi beca.jpeg" alt="Becas formación image"></div>
       <div class="card-body">
         <span class="tag">Formación</span>
         <div class="card-title">Becas formación</div>
@@ -490,7 +492,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-service="Remodelación áreas" role="article">
-      <div class="card-media"><img src="../imagenes/remodelacion de areas.jpeg" alt="Remodelación áreas image"></div>
+      <div class="card-media"><img src="../../Imagenes/remodelacion de areas.jpeg" alt="Remodelación áreas image"></div>
       <div class="card-body">
         <span class="tag">Infraestructura</span>
         <div class="card-title">Remodelación áreas</div>
@@ -525,7 +527,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
   <div class="grid grid-responsive" id="biologica-cards">
 
     <article class="card" data-dtype="Sangre total" role="article">
-      <div class="card-media"><img src="../imagenes/sangre total.jpeg" alt="Sangre total image"></div>
+      <div class="card-media"><img src="../../Imagenes/sangre total.jpeg" alt="Sangre total image"></div>
       <div class="card-body">
         <span class="tag">Sangre</span>
         <div class="card-title">Sangre total</div>
@@ -538,7 +540,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-dtype="Plasma" role="article">
-      <div class="card-media"><img src="../imagenes/plasma.jpeg" alt="Plasma image"></div>
+      <div class="card-media"><img src="../../Imagenes/plasma.jpeg" alt="Plasma image"></div>
       <div class="card-body">
         <span class="tag">Plasma</span>
         <div class="card-title">Plasma</div>
@@ -551,7 +553,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-dtype="Plaquetas" role="article">
-      <div class="card-media"><img src="../imagenes/plaquetas.jpeg" alt="Plaquetas image"></div>
+      <div class="card-media"><img src="../../Imagenes/plaquetas.jpeg" alt="Plaquetas image"></div>
       <div class="card-body">
         <span class="tag">Plaquetas</span>
         <div class="card-title">Plaquetas</div>
@@ -564,7 +566,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-dtype="Médula ósea (registro)" role="article">
-      <div class="card-media"><img src="../imagenes/medula osea.jpeg" alt="Médula ósea (registro) image"></div>
+      <div class="card-media"><img src="../../Imagenes/medula osea.jpeg" alt="Médula ósea (registro) image"></div>
       <div class="card-body">
         <span class="tag">Médula</span>
         <div class="card-title">Médula ósea (registro)</div>
@@ -577,7 +579,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-dtype="Órganos (información)" role="article">
-      <div class="card-media"><img src="../imagenes/organos.jpeg" alt="Órganos (información) image"></div>
+      <div class="card-media"><img src="../../Imagenes/organos.jpeg" alt="Órganos (información) image"></div>
       <div class="card-body">
         <span class="tag">Órganos</span>
         <div class="card-title">Órganos (información)</div>
@@ -590,7 +592,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-dtype="Piel (tejido)" role="article">
-      <div class="card-media"><img src="../imagenes/piel.jpeg" alt="Piel (tejido) image"></div>
+      <div class="card-media"><img src="../../Imagenes/piel.jpeg" alt="Piel (tejido) image"></div>
       <div class="card-body">
         <span class="tag">Tejidos</span>
         <div class="card-title">Piel (tejido)</div>
@@ -603,7 +605,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-dtype="Córnea" role="article">
-      <div class="card-media"><img src="../imagenes/cornea.jpeg" alt="Córnea image"></div>
+      <div class="card-media"><img src="../../Imagenes/cornea.jpeg" alt="Córnea image"></div>
       <div class="card-body">
         <span class="tag">Oftalmología</span>
         <div class="card-title">Córnea</div>
@@ -616,7 +618,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-dtype="Sangre de cordón" role="article">
-      <div class="card-media"><img src="../imagenes/cordon sanngre.jpeg" alt="Sangre de cordón image"></div>
+      <div class="card-media"><img src="../../Imagenes/cordon sanngre.jpeg" alt="Sangre de cordón image"></div>
       <div class="card-body">
         <span class="tag">Neonatal</span>
         <div class="card-title">Sangre de cordón</div>
@@ -629,7 +631,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-dtype="Tejido osteoarticular" role="article">
-      <div class="card-media"><img src="../imagenes/osearticular.png" alt="Tejido osteoarticular image"></div>
+      <div class="card-media"><img src="../../Imagenes/osearticular.png" alt="Tejido osteoarticular image"></div>
       <div class="card-body">
         <span class="tag">Trasplantes</span>
         <div class="card-title">Tejido osteoarticular</div>
@@ -642,7 +644,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-dtype="Médula (procedimiento)" role="article">
-      <div class="card-media"><img src="../imagenes/medula procedimiento.jpeg" alt="Médula (procedimiento) image"></div>
+      <div class="card-media"><img src="../../Imagenes/medula procedimiento.jpeg" alt="Médula (procedimiento) image"></div>
       <div class="card-body">
         <span class="tag">Médula</span>
         <div class="card-title">Médula (procedimiento)</div>
@@ -655,7 +657,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-dtype="Tejido cardiaco" role="article">
-      <div class="card-media"><img src="../imagenes/tejidos.jpeg" alt="Tejido cardiaco image"></div>
+      <div class="card-media"><img src="../../Imagenes/tejidos.jpeg" alt="Tejido cardiaco image"></div>
       <div class="card-body">
         <span class="tag">Cardio</span>
         <div class="card-title">Tejido cardiaco</div>
@@ -668,7 +670,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-dtype="Tejido para quemados" role="article">
-      <div class="card-media"><img src="../imagenes/tejido quemado.jpeg" alt="Tejido para quemados image"></div>
+      <div class="card-media"><img src="../../Imagenes/tejido quemado.jpeg" alt="Tejido para quemados image"></div>
       <div class="card-body">
         <span class="tag">Quemados</span>
         <div class="card-title">Tejido para quemados</div>
@@ -681,7 +683,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-dtype="Placenta" role="article">
-      <div class="card-media"><img src="../imagenes/placeta.jpeg" alt="Placenta image"></div>
+      <div class="card-media"><img src="../../Imagenes/placeta.jpeg" alt="Placenta image"></div>
       <div class="card-body">
         <span class="tag">Investigación</span>
         <div class="card-title">Placenta</div>
@@ -694,7 +696,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-dtype="Tendones y ligamentos" role="article">
-      <div class="card-media"><img src="../imagenes/tendones.jpeg" alt="Tendones y ligamentos image"></div>
+      <div class="card-media"><img src="../../Imagenes/tendones.jpeg" alt="Tendones y ligamentos image"></div>
       <div class="card-body">
         <span class="tag">Ortopedia</span>
         <div class="card-title">Tendones y ligamentos</div>
@@ -707,7 +709,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </article>
     
     <article class="card" data-dtype="Donación altruista" role="article">
-      <div class="card-media"><img src="../imagenes/alturista.jpeg" alt="Donación altruista image"></div>
+      <div class="card-media"><img src="../../Imagenes/alturista.jpeg" alt="Donación altruista image"></div>
       <div class="card-body">
         <span class="tag">General</span>
         <div class="card-title">Donación altruista</div>
@@ -735,7 +737,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </div>
     <div class="modal-body">
       <div><strong>Campaña:</strong> <span id="donateService">—</span></div>
-      <form id="donateForm" onsubmit="submitDonate(event)">
+      <form id="donateForm" onsubmit="submitDonate(event)"><?php echo campoAntispam(); ?>
         <div class="form-row">
           <div>
             <label for="dnombre">Nombre completo</label>
@@ -830,7 +832,7 @@ footer.site{margin-top:2rem;background:#042b45;color:#e6f5ff;padding:2rem 1rem}
     </div>
     <div class="modal-body">
       <div><strong>Tipo:</strong> <span id="bioType">—</span></div>
-      <form id="bioForm" onsubmit="submitBio(event)">
+      <form id="bioForm" onsubmit="submitBio(event)"><?php echo campoAntispam(); ?>
         <div class="form-row">
           <div>
             <label for="bnombre">Nombre completo</label>

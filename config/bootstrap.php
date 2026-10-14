@@ -30,6 +30,9 @@ function config(string $clave, $porDefecto = null)
     return $valor;
 }
 
+// Zona horaria (sin esto PHP usa UTC y después de las 7 p.m. de Colombia "hoy" sería mañana)
+date_default_timezone_set((string) config('app.timezone', 'America/Bogota'));
+
 // Errores: visibles solo en modo debug, siempre registrados en el log.
 error_reporting(E_ALL);
 ini_set('display_errors', config('app.debug') ? '1' : '0');
@@ -95,5 +98,7 @@ function db(): mysqli
             . $detalle . '</div>');
     }
     $conexion->set_charset('utf8mb4');
+    // Misma zona horaria que PHP para que NOW() y date() coincidan
+    $conexion->query("SET time_zone = '" . (new DateTime())->format('P') . "'");
     return $conexion;
 }

@@ -34,7 +34,10 @@ $todasEspecialidades = obtenerTodasEspecialidades();
 $citaExito = null;
 $errorMsg = '';
 
+require_once __DIR__ . '/../../includes/formularios_publicos.php';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['tipo'] ?? '') === 'cita') {
+    $motivoRechazo = revisarEnvioPublico('cita');
     $datos = [
         'nombre'   => trim($_POST['nombre'] ?? ''),
         'telefono' => trim($_POST['telefono'] ?? ''),
@@ -45,8 +48,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['tipo'] ?? '') === 'cita') 
         'motivo'   => trim($_POST['motivo'] ?? ''),
     ];
 
-    if ($datos['nombre'] === '' || $datos['correo'] === '' || $datos['servicio'] === '' || $datos['fecha'] === '' || $datos['hora'] === '') {
+    if ($motivoRechazo === 'spam') {
+        $errorMsg = 'No pudimos procesar la solicitud. Espere unos segundos e intente de nuevo.';
+    } elseif ($motivoRechazo === 'limite') {
+        $errorMsg = 'Ha enviado demasiadas solicitudes. Intente de nuevo en unos minutos o llámenos.';
+    } elseif ($datos['nombre'] === '' || $datos['correo'] === '' || $datos['servicio'] === '' || $datos['fecha'] === '' || $datos['hora'] === '') {
         $errorMsg = 'Complete todos los campos obligatorios.';
+    } elseif (!correoValido($datos['correo']) || !textoValido($datos['nombre'], 100) || !textoValido($datos['motivo'], 1000, false)) {
+        $errorMsg = 'Revise el correo electrónico y la longitud de los campos.';
     } elseif (strtotime($datos['fecha']) < strtotime(date('Y-m-d'))) {
         $errorMsg = 'La fecha no puede ser anterior a hoy.';
     } else {
@@ -66,6 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['tipo'] ?? '') === 'cita') 
             if ($idCita) {
                 $idPacienteNotif = $esPacienteLogueado ? $idUsuario : obtenerIdUsuarioPaciente($conexion, $datos['correo'], $datos['nombre']);
                 notificarNuevaCitaStaff($conexion, $datos, $idCita, $idPacienteNotif);
+                $_SESSION['ultima_cita'] = (int) $idCita;
                 header('Location: Agendar cita.php?exito=1&id=' . (int) $idCita);
                 exit;
             }
@@ -75,8 +85,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['tipo'] ?? '') === 'cita') 
 }
 
 if (isset($_GET['exito'], $_GET['id']) && $_GET['exito'] === '1') {
+    // Solo se muestra la cita recién creada en esta misma sesión (evita ver citas ajenas cambiando el número)
     $idCitaOk = (int) $_GET['id'];
-    $resCita = $conexion->query("SELECT * FROM cita WHERE id_cita = $idCitaOk LIMIT 1");
+    $resCita = $idCitaOk === (int) ($_SESSION['ultima_cita'] ?? 0)
+        ? $conexion->query("SELECT * FROM cita WHERE id_cita = $idCitaOk LIMIT 1")
+        : false;
     if ($resCita) {
         $citaExito = $resCita->fetch_assoc() ?: null;
     }
@@ -96,16 +109,18 @@ $urlLogin = '../../log_in/log_in.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agendar Cita — Clínica Salud Total</title>
+    <title>Agendar cita en línea | Clínica Salud Total</title>
+  <meta name="description" content="Agende su cita médica en línea: elija la especialidad, la fecha y la hora. Confirmación por correo y WhatsApp.">
+  <meta name="theme-color" content="#0b5394">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
         :root {
-            --primary: #0a6e5c;
-            --primary-dark: #064e42;
-            --primary-light: #14b8a6;
+            --primary: #0b5394;
+            --primary-dark: #062b4f;
+            --primary-light: #12a58e;
             --accent: #0284c7;
             --bg: #f1f5f9;
             --surface: #ffffff;
@@ -181,7 +196,7 @@ $urlLogin = '../../log_in/log_in.php';
 
         /* ── Hero ── */
         .page-hero {
-            background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 45%, #0d9488 100%);
+            background: radial-gradient(700px 320px at 90% 0, rgba(124, 214, 198, .28), transparent 60%), linear-gradient(120deg, var(--primary-dark) 0%, var(--primary) 60%, #0f7f95 100%);
             color: #fff;
             padding: 3rem 1.25rem 4rem;
             position: relative;
@@ -232,6 +247,7 @@ $urlLogin = '../../log_in/log_in.php';
             color: var(--primary);
             margin-bottom: .5rem;
         }
+        .paso-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.5rem; }
         .section-title { font-size: 1.35rem; font-weight: 800; margin-bottom: 1.25rem; letter-spacing: -.02em; }
 
         .category-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.25rem; }
@@ -515,28 +531,12 @@ $urlLogin = '../../log_in/log_in.php';
             margin-top: 2rem;
         }
     </style>
+    <?php require __DIR__ . '/../../includes/head_chrome.php'; ?>
 </head>
 <body>
 
-<!-- Header -->
-<header class="site-header">
-    <div class="inner">
-        <a href="<?php echo $urlIndex; ?>" class="brand">
-            <div class="brand-icon"><i class="bi bi-heart-pulse-fill"></i></div>
-            <span>Clínica Salud Total</span>
-        </a>
-        <div class="header-actions">
-            <a href="<?php echo $urlIndex; ?>" class="btn-nav btn-nav-ghost"><i class="bi bi-house"></i> Inicio</a>
-            <?php if ($esPacienteLogueado): ?>
-                <a href="<?php echo $urlPanelPaciente; ?>" class="btn-nav btn-nav-primary">
-                    <i class="bi bi-person-heart"></i> Mi panel<?php echo $primerNombre ? ' · ' . htmlspecialchars($primerNombre) : ''; ?>
-                </a>
-            <?php else: ?>
-                <a href="<?php echo $urlLogin; ?>" class="btn-nav btn-nav-primary"><i class="bi bi-box-arrow-in-right"></i> Iniciar sesión</a>
-            <?php endif; ?>
-        </div>
-    </div>
-</header>
+<?php $paginaActiva = ''; require __DIR__ . '/../../includes/header.php'; ?>
+<main id="contenido">
 
 <?php if ($citaExito): ?>
 <!-- ══════════ CITA AGENDADA ══════════ -->
@@ -590,7 +590,7 @@ $urlLogin = '../../log_in/log_in.php';
     <?php endif; ?>
 
     <!-- Paso 1: Categoría y especialidad -->
-    <div class="mb-4">
+    <div class="mb-4 paso-card">
         <div class="section-label">Paso 1</div>
         <div class="section-title">Elige categoría y especialidad</div>
         <div class="category-tabs" id="categoryTabs">
@@ -619,7 +619,7 @@ $urlLogin = '../../log_in/log_in.php';
                 <h2><i class="bi bi-calendar2-plus text-success"></i> Datos de tu cita</h2>
             </div>
             <div class="form-panel-body">
-                <form method="POST" id="formCita">
+                <form method="POST" id="formCita"><?php echo campoAntispam(); ?>
                     <input type="hidden" name="tipo" value="cita">
 
                     <div class="form-section">
@@ -697,11 +697,11 @@ $urlLogin = '../../log_in/log_in.php';
                 <h6><i class="bi bi-geo-alt-fill"></i> Ubicación</h6>
                 <div class="info-row"><i class="bi bi-pin-map"></i><span>Calle 10 # 5-20, Centro Médico, Cúcuta</span></div>
                 <div class="info-row"><i class="bi bi-telephone"></i><span>(601) 234-5678</span></div>
-                <div class="info-row"><i class="bi bi-clock"></i><span>Lun – Vie · 7:00 a.m. – 6:00 p.m.</span></div>
+                <div class="info-row"><i class="bi bi-clock"></i><span>Citas en línea: lun – vie · 7:00 a.m. – 6:00 p.m.</span></div>
                 <div class="info-row"><i class="bi bi-calendar2-check"></i><span>Servicios básicos: hasta 10 citas/día</span></div>
                 <div class="info-row"><i class="bi bi-calendar2-event"></i><span>Servicios especializados: hasta 5 citas/día</span></div>
                 <div class="map-box">
-                    <iframe src="https://www.google.com/maps?q=Cucuta+Colombia&output=embed" loading="lazy" title="Mapa"></iframe>
+                    <iframe src="https://www.google.com/maps?q=<?php echo rawurlencode(config('clinica.direccion') . ', Colombia'); ?>&output=embed" loading="lazy" title="Mapa de la clínica"></iframe>
                 </div>
             </div>
 
@@ -734,9 +734,8 @@ $urlLogin = '../../log_in/log_in.php';
 </div>
 <?php endif; ?>
 
-<footer class="site-footer">
-    © <?php echo date('Y'); ?> Clínica Salud Total · Agendamiento en línea seguro
-</footer>
+</main>
+<?php require __DIR__ . '/../../includes/footer.php'; ?>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>

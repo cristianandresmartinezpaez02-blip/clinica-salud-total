@@ -1,39 +1,80 @@
+<?php
+require_once __DIR__ . '/../../config/bootstrap.php';
+require_once __DIR__ . '/../../includes/iconos.php';
+
+$informes = [
+    ['Informe de gestión', 'Primer semestre 2026', 'Resultados asistenciales, financieros y de calidad del periodo enero – junio.', 'Gestión'],
+    ['Indicadores de calidad', 'Trimestre II 2026', 'Oportunidad en la atención, satisfacción del usuario y seguridad del paciente.', 'Calidad'],
+    ['Informe de PQRS', 'Trimestre II 2026', 'Peticiones, quejas, reclamos y sugerencias recibidas, tiempos de respuesta y acciones de mejora.', 'Usuarios'],
+    ['Estados financieros', 'Vigencia 2025', 'Balance general, estado de resultados y notas aprobadas por la junta directiva.', 'Financiero'],
+    ['Informe de gestión', 'Vigencia 2025', 'Balance anual de servicios prestados, inversiones y metas alcanzadas.', 'Gestión'],
+];
+?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Informes | Transparencia Clínica Salud Total</title>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<style>
-*{margin:0;padding:0;box-sizing:border-box;font-family:'Poppins',sans-serif;}
-body{background:#f4f9ff;color:#1a2b49;}
-.container{padding:60px 10%;}
-header{margin-bottom:40px;}
-a{color:#007BFF;text-decoration:none;}
-.card{background:white;border-radius:20px;padding:30px;box-shadow:0 10px 30px rgba(0,0,0,.08);margin-bottom:20px;}
-footer{margin-top:40px;text-align:center;color:#6b7280;}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Informes de gestión | Clínica Salud Total</title>
+  <meta name="description" content="Informes de gestión, indicadores de calidad, PQRS y estados financieros de la Clínica Salud Total.">
   <?php require __DIR__ . '/../../includes/head_chrome.php'; ?>
+  <link rel="stylesheet" href="<?= e(BASE_URL) ?>/assets/css/documento.css?v=1">
 </head>
-<body>
+<body class="doc">
 <?php $paginaActiva = 'transparencia'; require __DIR__ . '/../../includes/header.php'; ?>
 
-<div class="container">
-<header>
-<h1>Informes de Transparencia</h1>
-<p>Encuentra aquí los informes institucionales, auditorías y reportes de gestión.</p>
-<p><a href="transparencia.php">← Volver a Transparencia</a></p>
-</header>
-<section class="card">
-<h2>Informe Anual 2025</h2>
-<p>Resumen de resultados, actividades y avances en transparencia para el último año.</p>
-</section>
-<section class="card">
-<h2>Informe de Gestión</h2>
-<p>Documentación sobre procesos, cumplimiento y metas alcanzadas.</p>
-</section>
+<main id="contenido">
+  <section class="doc-hero">
+    <div class="st-wrap">
+      <nav class="doc-crumbs" aria-label="Ruta de navegación">
+        <a href="<?= e(BASE_URL) ?>/index.php">Inicio</a><span>/</span>
+        <a href="transparencia.php">Transparencia</a><span>/</span><span>Informes</span>
+      </nav>
+      <h1>Informes de gestión</h1>
+      <p>Rendimos cuentas sobre nuestra gestión asistencial, financiera y de calidad.</p>
+    </div>
+  </section>
+
+  <div class="doc-body">
+    <aside class="doc-toc" aria-label="Más documentos">
+      <strong>Transparencia</strong>
+      <ol>
+        <li><a href="transparencia.php">Portal de transparencia</a></li>
+        <li><a href="informes.php" aria-current="page">Informes de gestión</a></li>
+        <li><a href="actas.php">Actas institucionales</a></li>
+        <li><a href="politicas.php">Tratamiento de datos</a></li>
+      </ol>
+    </aside>
+
+    <article class="doc-content">
+      <section>
+        <h2>Informes publicados</h2>
+        <div class="doc-table-wrap">
+          <table class="doc-table">
+            <thead><tr><th>Informe</th><th>Periodo</th><th>Contenido</th><th>Área</th><th></th></tr></thead>
+            <tbody>
+              <?php foreach ($informes as [$nombre, $periodo, $contenido, $area]): ?>
+                <tr>
+                  <td><strong><?= e($nombre) ?></strong></td>
+                  <td style="white-space:nowrap"><?= e($periodo) ?></td>
+                  <td><?= e($contenido) ?></td>
+                  <td><span class="doc-tag"><?= e($area) ?></span></td>
+                  <td><a href="../contactanos/contactanos.php">Solicitar</a></td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section>
+        <h2>¿Necesita otra información?</h2>
+        <p>Puede solicitar cualquier información pública de la institución a través del <a href="../contactanos/contactanos.php">formulario de contacto</a>. Los datos personales de pacientes nunca se publican.</p>
+        <p class="doc-note">Contenido de ejemplo elaborado para un proyecto académico.</p>
+      </section>
+    </article>
+  </div>
+</main>
+
 <?php require __DIR__ . '/../../includes/footer.php'; ?>
-</div>
 </body>
 </html>

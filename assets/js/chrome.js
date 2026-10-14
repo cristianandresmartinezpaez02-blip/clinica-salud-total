@@ -43,7 +43,7 @@
   // Mensajes de resultado que llegan por la URL (?cita=ok, ?contacto=ok, etc.)
   var params = new URLSearchParams(window.location.search);
   var mensajes = {
-    cita: { ok: 'Su solicitud de cita fue enviada. Le contactaremos para confirmarla.', error: 'No pudimos registrar la cita. Revise los datos e intente de nuevo.' }
+    cita: { ok: 'Su solicitud de cita fue enviada. Le contactaremos para confirmarla.', error: 'No pudimos registrar la cita. Revise los datos e intente de nuevo.', limite: 'Ha enviado demasiadas solicitudes. Intente de nuevo en unos minutos.' }
   };
   Object.keys(mensajes).forEach(function (clave) {
     var valor = params.get(clave);

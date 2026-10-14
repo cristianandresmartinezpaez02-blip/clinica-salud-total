@@ -6,6 +6,7 @@
  */
 require_once __DIR__ . '/../config/bootstrap.php';
 require_once __DIR__ . '/iconos.php';
+require_once __DIR__ . '/formularios_publicos.php';
 
 $paginaActiva = $paginaActiva ?? '';
 $menu = [

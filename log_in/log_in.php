@@ -4,6 +4,8 @@ iniciarSesion();
 require_once __DIR__ . "/conexion/conexion.php";
 require_once __DIR__ . "/conexion/rutas.php";
 require_once __DIR__ . "/conexion/auth_servicio.php";
+require_once __DIR__ . "/includes/seguridad_panel.php"; // funciones csrfToken() / csrfValido()
+require_once __DIR__ . "/../includes/iconos.php";
 
 asegurarEsquemaAuth($conexion);
 
@@ -11,7 +13,10 @@ $error = "";
 $success = "";
 $tabActiva = 'login';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrfValido($_POST['_csrf'] ?? null)) {
+    $error = 'La página expiró. Por favor intente de nuevo.';
+    $tabActiva = isset($_POST['nombre_reg']) ? 'registro' : 'login';
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['apellido'], $_POST['nombre_reg'])) {
         $tabActiva = 'registro';
         $nombre_input = trim($_POST['nombre_reg'] ?? '');
@@ -164,333 +169,279 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 ?>
+<?php
+$old = fn(string $campo): string => e($_POST[$campo] ?? '');
+$rolElegido = $_POST['rol'] ?? '';
+$modulos = [
+    'paciente'  => ['bi-person-heart', 'Paciente'],
+    'medico'    => ['bi-heart-pulse', 'Médico'],
+    'enfermero' => ['bi-bandaid', 'Enfermería'],
+    'farmacia'  => ['bi-capsule', 'Farmacia'],
+    'admin'     => ['bi-shield-lock', 'Admin'],
+];
+?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ingresar — Clínica Salud Total</title>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <title>Ingresar | Clínica Salud Total</title>
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#0b5394">
+  <link rel="icon" type="image/svg+xml" href="<?php echo e(BASE_URL); ?>/assets/img/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <style>
-    :root {
-      --primary: #0a6e5c;
-      --primary-dark: #064e42;
-      --accent: #0e6ba8;
-      --bg: #0f172a;
-      --glass: rgba(255,255,255,0.08);
-      --text: #f8fafc;
-      --muted: #94a3b8;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Plus Jakarta Sans', sans-serif;
-      min-height: 100vh;
-      background: var(--bg);
-      color: var(--text);
-      overflow-x: hidden;
-    }
-    .bg-animated {
-      position: fixed; inset: 0; z-index: 0;
-      background: linear-gradient(135deg, #0f172a 0%, #134e4a 40%, #0c4a6e 100%);
-    }
-    .bg-animated::before, .bg-animated::after {
-      content: ''; position: absolute; border-radius: 50%; filter: blur(80px); opacity: .4;
-      animation: float 8s ease-in-out infinite alternate;
-    }
-    .bg-animated::before { width: 400px; height: 400px; background: #14b8a6; top: -100px; left: -100px; }
-    .bg-animated::after { width: 350px; height: 350px; background: #0284c7; bottom: -80px; right: -80px; animation-delay: -4s; }
-    @keyframes float { to { transform: translate(30px, 20px) scale(1.05); } }
-
-    .page-wrap {
-      position: relative; z-index: 1;
-      min-height: 100vh;
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      padding: 2rem 1rem;
-    }
-    .top-link {
-      position: absolute; top: 1.25rem; left: 1.25rem;
-      color: var(--text); text-decoration: none; font-weight: 600;
-      display: flex; align-items: center; gap: .5rem;
-      padding: .6rem 1rem; border-radius: 12px;
-      background: var(--glass); border: 1px solid rgba(255,255,255,.12);
-      transition: .25s;
-    }
-    .top-link:hover { background: rgba(255,255,255,.15); color: #fff; transform: translateX(-3px); }
-
-    .login-card {
-      width: 100%; max-width: 440px;
-      background: rgba(255,255,255,.06);
-      backdrop-filter: blur(20px);
-      border: 1px solid rgba(255,255,255,.12);
-      border-radius: 24px;
-      padding: 2rem;
-      box-shadow: 0 25px 60px rgba(0,0,0,.35);
-      animation: cardIn .5s ease;
-    }
-    @keyframes cardIn { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:none; } }
-
-    .brand { text-align: center; margin-bottom: 1.75rem; }
-    .brand-icon {
-      width: 56px; height: 56px; margin: 0 auto .75rem;
-      background: linear-gradient(135deg, var(--primary), #14b8a6);
-      border-radius: 16px; display: flex; align-items: center; justify-content: center;
-      font-size: 1.5rem; color: #fff;
-    }
-    .brand h1 { font-size: 1.35rem; font-weight: 800; letter-spacing: -.02em; }
-    .brand p { color: var(--muted); font-size: .875rem; margin-top: .25rem; }
-
-    .tabs { display: flex; gap: .5rem; margin-bottom: 1.5rem; background: rgba(0,0,0,.2); padding: .35rem; border-radius: 14px; }
-    .tab-btn {
-      flex: 1; padding: .65rem; border: none; border-radius: 11px;
-      background: transparent; color: var(--muted); font-family: inherit;
-      font-weight: 700; font-size: .875rem; cursor: pointer; transition: .25s;
-    }
-    .tab-btn.active { background: linear-gradient(135deg, var(--primary), #0d9488); color: #fff; box-shadow: 0 4px 15px rgba(10,110,92,.4); }
-
-    .form-panel { display: none; }
-    .form-panel.active { display: block; animation: fadeIn .3s ease; }
-    @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
-
-    .field { margin-bottom: 1rem; }
-    .field label { display: block; font-size: .8rem; font-weight: 600; color: var(--muted); margin-bottom: .4rem; }
-    .input-box {
-      display: flex; align-items: center;
-      background: rgba(0,0,0,.25); border: 1.5px solid rgba(255,255,255,.1);
-      border-radius: 12px; transition: .25s;
-    }
-    .input-box:focus-within { border-color: #14b8a6; box-shadow: 0 0 0 3px rgba(20,184,166,.2); }
-    .input-box i { padding: 0 .85rem; color: var(--muted); }
-    .input-box input, .input-box select {
-      flex: 1; border: none; background: transparent; color: #fff;
-      padding: .8rem .85rem .8rem 0; font-family: inherit; font-size: .925rem; outline: none;
-    }
-    .input-box select option { background: #1e293b; color: #fff; }
-
-    .btn-main {
-      width: 100%; padding: .95rem; margin-top: .5rem;
-      background: linear-gradient(135deg, var(--primary), #0d9488);
-      color: #fff; border: none; border-radius: 14px;
-      font-family: inherit; font-size: 1rem; font-weight: 700;
-      cursor: pointer; transition: .25s;
-      display: flex; align-items: center; justify-content: center; gap: .5rem;
-    }
-    .btn-main:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(10,110,92,.45); }
-
-    .alert-box {
-      padding: .85rem 1rem; border-radius: 12px; margin-bottom: 1rem;
-      font-size: .875rem; font-weight: 600; display: flex; align-items: center; gap: .5rem;
-      animation: shake .4s ease;
-    }
-    .alert-error { background: rgba(239,68,68,.15); border: 1px solid rgba(239,68,68,.35); color: #fca5a5; }
-    .alert-success { background: rgba(34,197,94,.15); border: 1px solid rgba(34,197,94,.35); color: #86efac; }
-    @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)} }
-
-    .roles-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin-bottom: 1rem;
-    }
-    .role-chip {
-      padding: .55rem .35rem; border-radius: 10px; text-align: center;
-      background: rgba(0,0,0,.2); border: 1.5px solid rgba(255,255,255,.08);
-      font-size: .72rem; font-weight: 600; cursor: pointer; transition: .2s; color: var(--muted);
-    }
-    .role-chip:hover, .role-chip.selected {
-      border-color: #14b8a6; background: rgba(20,184,166,.15); color: #5eead4;
-    }
-    .role-chip i { display: block; font-size: 1.1rem; margin-bottom: 2px; }
-
-    .footer-note { text-align: center; margin-top: 1.25rem; font-size: .78rem; color: var(--muted); }
-    .footer-note a { color: #5eead4; text-decoration: none; font-weight: 600; }
-
-    .consent-box {
-      display: flex; align-items: flex-start; gap: .65rem;
-      padding: .85rem 1rem; margin-bottom: 1rem;
-      background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.1);
-      border-radius: 12px; font-size: .8rem; color: var(--muted); line-height: 1.45;
-    }
-    .consent-box input { margin-top: 3px; accent-color: #14b8a6; flex-shrink: 0; }
-    .consent-box a { color: #5eead4; }
-  </style>
+  <link rel="stylesheet" href="<?php echo e(BASE_URL); ?>/assets/css/login.css?v=1">
 </head>
 <body>
-  <div class="bg-animated"></div>
-  <div class="page-wrap">
-    <a href="<?php echo url_index(); ?>" class="top-link"><i class="bi bi-arrow-left"></i> Volver al inicio</a>
+<div class="auth">
+  <!-- Panel de marca -->
+  <aside class="auth__brand" aria-hidden="false">
+    <div class="auth__brand-inner">
+      <a class="auth__logo" href="<?php echo url_index(); ?>">
+        <span class="auth__logo-mark"><?php echo icono('logo'); ?></span>
+        <span>Clínica <strong>Salud Total</strong></span>
+      </a>
+      <div class="auth__pitch">
+        <h1>Su salud, organizada en un solo lugar</h1>
+        <p>Acceda al sistema clínico para gestionar citas, diagnósticos, fórmulas y facturación de forma segura.</p>
+        <ul>
+          <li><i class="bi bi-calendar2-check"></i><span><strong>Citas en línea</strong>Agende y consulte el estado de sus citas.</span></li>
+          <li><i class="bi bi-file-earmark-medical"></i><span><strong>Historia y fórmulas</strong>Sus diagnósticos disponibles cuando los necesite.</span></li>
+          <li><i class="bi bi-shield-check"></i><span><strong>Acceso protegido</strong>Verificación de identidad y datos cifrados.</span></li>
+        </ul>
+      </div>
+      <p class="auth__brand-foot"><i class="bi bi-telephone"></i> <?php echo e(config('clinica.telefono')); ?> · Urgencias 24 horas</p>
+    </div>
+  </aside>
 
-    <div class="login-card">
-      <div class="brand">
-        <div class="brand-icon"><i class="bi bi-heart-pulse-fill"></i></div>
-        <h1>Clínica Salud Total</h1>
-        <p>Acceso seguro al sistema clínico</p>
+  <!-- Formularios -->
+  <main class="auth__main">
+    <a href="<?php echo url_index(); ?>" class="auth__back"><i class="bi bi-arrow-left"></i> Volver al sitio</a>
+
+    <div class="auth__card">
+      <div class="auth__head">
+        <h2 id="tituloAuth"><?php echo $tabActiva === 'registro' ? 'Crear cuenta de paciente' : 'Bienvenido de nuevo'; ?></h2>
+        <p id="subtituloAuth"><?php echo $tabActiva === 'registro' ? 'Regístrese para agendar citas y consultar su historial.' : 'Ingrese con su usuario y documento de identidad.'; ?></p>
       </div>
 
       <?php if ($error): ?>
-        <div class="alert-box alert-error"><i class="bi bi-exclamation-triangle-fill"></i> <?php echo htmlspecialchars($error); ?></div>
+        <div class="auth__alert auth__alert--error" role="alert"><i class="bi bi-exclamation-circle-fill"></i><span><?php echo e($error); ?></span></div>
       <?php endif; ?>
       <?php if ($success): ?>
-        <div class="alert-box alert-success"><i class="bi bi-check-circle-fill"></i> <?php echo htmlspecialchars($success); ?></div>
+        <div class="auth__alert auth__alert--ok" role="status"><i class="bi bi-check-circle-fill"></i><span><?php echo e($success); ?></span></div>
       <?php endif; ?>
 
-      <div class="tabs">
-        <button type="button" class="tab-btn <?php echo $tabActiva === 'login' ? 'active' : ''; ?>" onclick="showTab('login')">Iniciar sesión</button>
-        <button type="button" class="tab-btn <?php echo $tabActiva === 'registro' ? 'active' : ''; ?>" onclick="showTab('registro')">Registrarse</button>
+      <div class="auth__tabs" role="tablist">
+        <button type="button" role="tab" id="tab-login" aria-controls="panel-login" aria-selected="<?php echo $tabActiva === 'login' ? 'true' : 'false'; ?>" class="<?php echo $tabActiva === 'login' ? 'is-active' : ''; ?>" data-tab="login">Iniciar sesión</button>
+        <button type="button" role="tab" id="tab-registro" aria-controls="panel-registro" aria-selected="<?php echo $tabActiva === 'registro' ? 'true' : 'false'; ?>" class="<?php echo $tabActiva === 'registro' ? 'is-active' : ''; ?>" data-tab="registro">Registrarse</button>
       </div>
 
-      <div id="panel-login" class="form-panel <?php echo $tabActiva === 'login' ? 'active' : ''; ?>">
-        <form method="POST" id="form-login">
-          <div class="field">
-            <label>Usuario</label>
-            <div class="input-box"><i class="bi bi-person"></i><input type="text" name="usuario" required autocomplete="username" placeholder="Su usuario"></div>
-          </div>
-          <div class="field">
-            <label>Contraseña</label>
-            <div class="input-box"><i class="bi bi-lock"></i><input type="password" name="clave" required autocomplete="current-password" placeholder="••••••••"></div>
-          </div>
-          <div class="field">
-            <label>Módulo de acceso</label>
-            <div class="roles-grid" id="rolesLogin">
-              <div class="role-chip" data-rol="admin"><i class="bi bi-shield-lock"></i>Admin</div>
-              <div class="role-chip" data-rol="medico"><i class="bi bi-heart-pulse"></i>Médico</div>
-              <div class="role-chip" data-rol="enfermero"><i class="bi bi-bandaid"></i>Enfermero</div>
-              <div class="role-chip" data-rol="paciente"><i class="bi bi-person-heart"></i>Paciente</div>
-              <div class="role-chip" data-rol="farmacia"><i class="bi bi-capsule"></i>Farmacia</div>
+      <!-- INICIAR SESIÓN -->
+      <section id="panel-login" role="tabpanel" aria-labelledby="tab-login" class="auth__panel<?php echo $tabActiva === 'login' ? ' is-active' : ''; ?>">
+        <form method="POST" id="form-login" novalidate>
+          <input type="hidden" name="_csrf" value="<?php echo e(csrfToken()); ?>">
+
+          <fieldset class="auth__roles">
+            <legend>¿Cómo desea ingresar?</legend>
+            <div class="auth__roles-grid">
+              <?php foreach ($modulos as $valor => [$ico, $texto]): ?>
+                <label class="auth__role">
+                  <input type="radio" name="rol" value="<?php echo $valor; ?>" required<?php echo $rolElegido === $valor ? ' checked' : ''; ?>>
+                  <span><i class="bi <?php echo $ico; ?>"></i><?php echo $texto; ?></span>
+                </label>
+              <?php endforeach; ?>
             </div>
-            <input type="hidden" name="rol" id="rolLogin" required>
+          </fieldset>
+
+          <div class="auth__field">
+            <label for="usuario">Usuario</label>
+            <div class="auth__input"><i class="bi bi-person"></i><input id="usuario" type="text" name="usuario" required autocomplete="username" placeholder="Su nombre de usuario" value="<?php echo $old('usuario'); ?>"></div>
           </div>
-          <div class="field">
-            <label>Verificación de identidad *</label>
-            <div class="input-box"><i class="bi bi-card-heading"></i>
-              <select name="tipo_documento" id="tipoDocumentoLogin" required>
-                <?php echo opcionesHtmlTipoDocumento(); ?>
-              </select>
+          <div class="auth__field">
+            <label for="clave">Contraseña</label>
+            <div class="auth__input"><i class="bi bi-lock"></i><input id="clave" type="password" name="clave" required autocomplete="current-password" placeholder="••••••••">
+              <button type="button" class="auth__eye" data-ver="clave" aria-label="Mostrar contraseña"><i class="bi bi-eye"></i></button>
             </div>
           </div>
-          <div class="field">
-            <label id="labelDocumentoLogin">Número de documento *</label>
-            <div class="input-box"><i class="bi bi-person-vcard"></i><input type="text" name="documento" id="documentoLogin" required autocomplete="off" placeholder="Ingrese su número de documento"></div>
+          <div class="auth__row">
+            <div class="auth__field">
+              <label for="tipoDocumentoLogin">Tipo de documento</label>
+              <div class="auth__input auth__input--select"><i class="bi bi-card-heading"></i>
+                <select name="tipo_documento" id="tipoDocumentoLogin" required><?php echo opcionesHtmlTipoDocumento($_POST['tipo_documento'] ?? 'CC'); ?></select>
+              </div>
+            </div>
+            <div class="auth__field">
+              <label for="documentoLogin">Número de documento</label>
+              <div class="auth__input"><i class="bi bi-person-vcard"></i><input type="text" name="documento" id="documentoLogin" required inputmode="numeric" autocomplete="off" placeholder="Ej: 1234567890" value="<?php echo $old('documento'); ?>"></div>
+            </div>
           </div>
-          <label class="consent-box">
-            <input type="checkbox" name="acepto_datos" value="1" required>
-            <span>Acepto el <a href="../subpaginas/transparencia/politicas.php" target="_blank">tratamiento de mis datos personales</a> conforme a la política de protección de datos de la clínica.</span>
+          <label class="auth__check">
+            <input type="checkbox" name="acepto_datos" value="1" required<?php echo isset($_POST['acepto_datos']) ? ' checked' : ''; ?>>
+            <span>Acepto el <a href="../subpaginas/transparencia/politicas.php" target="_blank" rel="noopener">tratamiento de mis datos personales</a>.</span>
           </label>
-          <button type="submit" class="btn-main"><i class="bi bi-box-arrow-in-right"></i> Ingresar</button>
+          <button type="submit" class="auth__submit"><i class="bi bi-box-arrow-in-right"></i> Ingresar</button>
         </form>
-      </div>
+      </section>
 
-      <div id="panel-registro" class="form-panel <?php echo $tabActiva === 'registro' ? 'active' : ''; ?>">
+      <!-- REGISTRO -->
+      <section id="panel-registro" role="tabpanel" aria-labelledby="tab-registro" class="auth__panel<?php echo $tabActiva === 'registro' ? ' is-active' : ''; ?>">
         <form method="POST" enctype="multipart/form-data">
-          <div class="field">
-            <label>Nombre</label>
-            <div class="input-box"><i class="bi bi-person"></i><input type="text" name="nombre_reg" required></div>
-          </div>
-          <div class="field">
-            <label>Apellido</label>
-            <div class="input-box"><i class="bi bi-person"></i><input type="text" name="apellido" required></div>
-          </div>
-          <div class="field">
-            <label>Usuario</label>
-            <div class="input-box"><i class="bi bi-at"></i><input type="text" name="usuario_reg" required></div>
-          </div>
-          <div class="field">
-            <label>Contraseña</label>
-            <div class="input-box"><i class="bi bi-key"></i><input type="password" name="clave_reg" required minlength="8" autocomplete="new-password" placeholder="Mínimo 8 caracteres, letras y números"></div>
-          </div>
-          <div class="field">
-            <label>Número de WhatsApp *</label>
-            <div class="input-box"><i class="bi bi-whatsapp"></i><input type="tel" name="telefono_reg" required inputmode="numeric" pattern="[0-9]{10,15}" maxlength="15" placeholder="Ej: 3001234567" title="Número celular con WhatsApp (10 dígitos)"></div>
-          </div>
-          <div class="field">
-            <label>Verificación de identidad *</label>
-            <div class="input-box"><i class="bi bi-card-heading"></i>
-              <select name="tipo_documento_reg" id="tipoDocumentoReg" required>
-                <?php echo opcionesHtmlTipoDocumento(); ?>
-              </select>
+          <input type="hidden" name="_csrf" value="<?php echo e(csrfToken()); ?>">
+          <p class="auth__note"><i class="bi bi-info-circle"></i> El registro es para <strong>pacientes</strong>. Las cuentas del personal las crea el administrador.</p>
+
+          <div class="auth__row">
+            <div class="auth__field">
+              <label for="nombre_reg">Nombre</label>
+              <div class="auth__input"><input id="nombre_reg" type="text" name="nombre_reg" required autocomplete="given-name" value="<?php echo $old('nombre_reg'); ?>"></div>
             </div>
-            <small style="display:block;margin-top:.35rem;color:var(--muted);font-size:.75rem;">Cédula de ciudadanía, cédula de extranjería, pasaporte u otro documento oficial. No se acepta tarjeta de identidad.</small>
-          </div>
-          <div class="field">
-            <label id="labelDocumentoReg">Número de documento *</label>
-            <div class="input-box"><i class="bi bi-person-vcard"></i><input type="text" name="documento_reg" id="documentoReg" required placeholder="Ingrese el número de su documento"></div>
-          </div>
-          <div class="field">
-            <label>Rol</label>
-            <div class="input-box"><i class="bi bi-briefcase"></i>
-              <select name="rol_reg" id="rolReg" required>
-                <option value="paciente">Paciente</option>
-              </select>
+            <div class="auth__field">
+              <label for="apellido_reg">Apellido</label>
+              <div class="auth__input"><input id="apellido_reg" type="text" name="apellido" required autocomplete="family-name" value="<?php echo $old('apellido'); ?>"></div>
             </div>
           </div>
-          <label class="consent-box">
-            <input type="checkbox" name="acepto_datos_reg" value="1" required>
-            <span>Acepto el <a href="../subpaginas/transparencia/politicas.php" target="_blank">tratamiento de mis datos personales</a> para el registro y uso del sistema clínico.</span>
+          <div class="auth__row">
+            <div class="auth__field">
+              <label for="usuario_reg">Usuario</label>
+              <div class="auth__input"><i class="bi bi-at"></i><input id="usuario_reg" type="text" name="usuario_reg" required autocomplete="username" value="<?php echo $old('usuario_reg'); ?>"></div>
+            </div>
+            <div class="auth__field">
+              <label for="telefono_reg">WhatsApp</label>
+              <div class="auth__input"><i class="bi bi-whatsapp"></i><input id="telefono_reg" type="tel" name="telefono_reg" required inputmode="numeric" pattern="[0-9]{10,15}" maxlength="15" placeholder="3001234567" value="<?php echo $old('telefono_reg'); ?>"></div>
+            </div>
+          </div>
+          <div class="auth__field">
+            <label for="clave_reg">Contraseña</label>
+            <div class="auth__input"><i class="bi bi-key"></i><input id="clave_reg" type="password" name="clave_reg" required minlength="8" autocomplete="new-password" placeholder="Mínimo 8 caracteres, con letras y números">
+              <button type="button" class="auth__eye" data-ver="clave_reg" aria-label="Mostrar contraseña"><i class="bi bi-eye"></i></button>
+            </div>
+            <div class="auth__meter" aria-hidden="true"><span id="medidorClave"></span></div>
+          </div>
+          <div class="auth__row">
+            <div class="auth__field">
+              <label for="tipoDocumentoReg">Tipo de documento</label>
+              <div class="auth__input auth__input--select"><i class="bi bi-card-heading"></i>
+                <select name="tipo_documento_reg" id="tipoDocumentoReg" required><?php echo opcionesHtmlTipoDocumento($_POST['tipo_documento_reg'] ?? 'CC'); ?></select>
+              </div>
+            </div>
+            <div class="auth__field">
+              <label for="documentoReg">Número de documento</label>
+              <div class="auth__input"><i class="bi bi-person-vcard"></i><input type="text" name="documento_reg" id="documentoReg" required placeholder="Ej: 1234567890" value="<?php echo $old('documento_reg'); ?>"></div>
+            </div>
+          </div>
+
+          <div class="auth__uploads">
+            <label class="auth__upload">
+              <input type="file" name="foto_documento" accept="image/jpeg,image/png,image/webp" required>
+              <i class="bi bi-person-vcard"></i>
+              <span><strong>Foto del documento</strong><small data-vacio="Frente, legible (JPG, PNG o WEBP · máx. 5 MB)">Frente, legible (JPG, PNG o WEBP · máx. 5 MB)</small></span>
+            </label>
+            <label class="auth__upload">
+              <input type="file" name="foto_selfie" accept="image/jpeg,image/png,image/webp" required>
+              <i class="bi bi-person-bounding-box"></i>
+              <span><strong>Selfie con el documento</strong><small data-vacio="Su rostro y el documento en la misma foto">Su rostro y el documento en la misma foto</small></span>
+            </label>
+            <label class="auth__upload auth__upload--opt">
+              <input type="file" name="foto" accept="image/jpeg,image/png,image/webp">
+              <i class="bi bi-image"></i>
+              <span><strong>Foto de perfil <em>(opcional)</em></strong><small data-vacio="Se mostrará en su cuenta">Se mostrará en su cuenta</small></span>
+            </label>
+          </div>
+
+          <label class="auth__check">
+            <input type="checkbox" name="acepto_datos_reg" value="1" required<?php echo isset($_POST['acepto_datos_reg']) ? ' checked' : ''; ?>>
+            <span>Acepto el <a href="../subpaginas/transparencia/politicas.php" target="_blank" rel="noopener">tratamiento de mis datos personales</a> para el registro y uso del sistema clínico.</span>
           </label>
-          <div class="field">
-            <label>Foto del documento (frente) *</label>
-            <div class="input-box"><i class="bi bi-camera"></i><input type="file" name="foto_documento" accept="image/jpeg,image/png,image/webp" required style="padding:.6rem"></div>
-            <small style="display:block;margin-top:.35rem;color:var(--muted);font-size:.75rem;">Foto clara donde se vea el número y su nombre en la cédula o documento.</small>
-          </div>
-          <div class="field">
-            <label>Selfie sosteniendo el documento *</label>
-            <div class="input-box"><i class="bi bi-person-bounding-box"></i><input type="file" name="foto_selfie" accept="image/jpeg,image/png,image/webp" required style="padding:.6rem"></div>
-            <small style="display:block;margin-top:.35rem;color:var(--muted);font-size:.75rem;">Debe verse su rostro y el documento en la misma foto. Así confirmamos que es usted.</small>
-          </div>
-          <div class="field">
-            <label>Foto de perfil (opcional)</label>
-            <div class="input-box"><i class="bi bi-image"></i><input type="file" name="foto" accept="image/*" style="padding:.6rem"></div>
-          </div>
-          <button type="submit" class="btn-main"><i class="bi bi-person-plus"></i> Crear cuenta</button>
+          <button type="submit" class="auth__submit"><i class="bi bi-person-plus"></i> Crear cuenta</button>
+          <p class="auth__hint">Un administrador revisará sus documentos en un plazo de 24 a 48 horas.</p>
         </form>
-      </div>
+      </section>
 
-      <p class="footer-note">Al ingresar, verificamos su identidad y el consentimiento de datos. ¿Necesita agendar una cita? <a href="<?php echo url_agendar_cita(); ?>">Agendar aquí</a> · <a href="<?php echo url_index(); ?>">Ir al sitio web</a></p>
+      <p class="auth__foot">¿Solo necesita una cita? <a href="<?php echo url_agendar_cita(); ?>">Agéndela sin cuenta</a></p>
     </div>
-  </div>
+  </main>
+</div>
 
-  <script>
-    const placeholdersPorTipo = {
-      CC:   'Ej: 1234567890',
-      CE:   'Ej: 1234567890',
-      PA:   'Ej: AB1234567',
-      PPT:  'Ej: 1234567890',
-      OTRO: 'Número del documento oficial'
-    };
-
-    function actualizarPlaceholderDocumento(tipoSelectId, inputId) {
-      const tipo = document.getElementById(tipoSelectId)?.value || '';
-      const input = document.getElementById(inputId);
-      if (input) {
-        input.placeholder = placeholdersPorTipo[tipo] || 'Ingrese el número de su documento';
-      }
-    }
-
-    function showTab(tab) {
-      document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', (tab==='login'&&i===0)||(tab==='registro'&&i===1)));
-      document.getElementById('panel-login').classList.toggle('active', tab === 'login');
-      document.getElementById('panel-registro').classList.toggle('active', tab === 'registro');
-    }
-
-    document.querySelectorAll('#rolesLogin .role-chip').forEach(chip => {
-      chip.addEventListener('click', () => {
-        document.querySelectorAll('#rolesLogin .role-chip').forEach(c => c.classList.remove('selected'));
-        chip.classList.add('selected');
-        document.getElementById('rolLogin').value = chip.dataset.rol;
+<script>
+(function () {
+  'use strict';
+  var titulos = {
+    login: ['Bienvenido de nuevo', 'Ingrese con su usuario y documento de identidad.'],
+    registro: ['Crear cuenta de paciente', 'Regístrese para agendar citas y consultar su historial.']
+  };
+  document.querySelectorAll('.auth__tabs [data-tab]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var tab = btn.dataset.tab;
+      document.querySelectorAll('.auth__tabs [data-tab]').forEach(function (b) {
+        var activo = b === btn;
+        b.classList.toggle('is-active', activo);
+        b.setAttribute('aria-selected', String(activo));
       });
+      document.querySelectorAll('.auth__panel').forEach(function (p) { p.classList.toggle('is-active', p.id === 'panel-' + tab); });
+      document.getElementById('tituloAuth').textContent = titulos[tab][0];
+      document.getElementById('subtituloAuth').textContent = titulos[tab][1];
     });
+  });
 
-    document.getElementById('tipoDocumentoLogin')?.addEventListener('change', () => {
-      actualizarPlaceholderDocumento('tipoDocumentoLogin', 'documentoLogin');
+  // Mostrar / ocultar contraseña
+  document.querySelectorAll('[data-ver]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var input = document.getElementById(btn.dataset.ver);
+      var visible = input.type === 'text';
+      input.type = visible ? 'password' : 'text';
+      btn.setAttribute('aria-label', visible ? 'Mostrar contraseña' : 'Ocultar contraseña');
+      btn.innerHTML = '<i class="bi ' + (visible ? 'bi-eye' : 'bi-eye-slash') + '"></i>';
     });
-    document.getElementById('tipoDocumentoReg')?.addEventListener('change', () => {
-      actualizarPlaceholderDocumento('tipoDocumentoReg', 'documentoReg');
-    });
+  });
 
-    document.getElementById('form-login').addEventListener('submit', e => {
-      if (!document.getElementById('rolLogin').value) {
-        e.preventDefault();
-        alert('Seleccione el módulo de acceso.');
-      }
+  // Indicador de fortaleza de la contraseña
+  var claveReg = document.getElementById('clave_reg');
+  var medidor = document.getElementById('medidorClave');
+  claveReg.addEventListener('input', function () {
+    var v = claveReg.value, p = 0;
+    if (v.length >= 8) p++;
+    if (/[A-Za-z]/.test(v) && /\d/.test(v)) p++;
+    if (v.length >= 12 || /[^A-Za-z0-9]/.test(v)) p++;
+    medidor.style.width = (v ? Math.max(p, 1) * 33.4 : 0) + '%';
+    medidor.dataset.nivel = p;
+  });
+
+  // Nombre del archivo elegido
+  document.querySelectorAll('.auth__upload input[type=file]').forEach(function (input) {
+    input.addEventListener('change', function () {
+      var small = input.parentElement.querySelector('small');
+      var lleno = input.files && input.files[0];
+      small.textContent = lleno ? input.files[0].name : small.dataset.vacio;
+      input.parentElement.classList.toggle('is-filled', !!lleno);
     });
-  </script>
+  });
+
+  // Placeholder según el tipo de documento
+  var ejemplos = { CC: 'Ej: 1234567890', CE: 'Ej: 1234567890', PA: 'Ej: AB1234567', PPT: 'Ej: 1234567890', OTRO: 'Número del documento' };
+  [['tipoDocumentoLogin', 'documentoLogin'], ['tipoDocumentoReg', 'documentoReg']].forEach(function (par) {
+    var sel = document.getElementById(par[0]), inp = document.getElementById(par[1]);
+    var actualizar = function () { inp.placeholder = ejemplos[sel.value] || 'Número del documento'; };
+    sel.addEventListener('change', actualizar);
+    actualizar();
+  });
+
+  // Validación amable antes de enviar el inicio de sesión
+  document.getElementById('form-login').addEventListener('submit', function (e) {
+    var form = e.target;
+    if (!form.querySelector('input[name=rol]:checked')) {
+      e.preventDefault();
+      form.querySelector('.auth__roles').classList.add('is-invalid');
+      form.querySelector('.auth__roles').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    if (!form.checkValidity()) { e.preventDefault(); form.reportValidity(); }
+  });
+  document.querySelectorAll('input[name=rol]').forEach(function (r) {
+    r.addEventListener('change', function () { document.querySelector('.auth__roles').classList.remove('is-invalid'); });
+  });
+})();
+</script>
 </body>
 </html>

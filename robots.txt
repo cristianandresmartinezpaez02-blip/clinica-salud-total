@@ -1,0 +1,10 @@
+# Clínica Salud Total
+# Este archivo solo tiene efecto si el proyecto se publica en la raíz del dominio.
+User-agent: *
+Disallow: /log_in/
+Disallow: /config/
+Disallow: /includes/
+Disallow: /base_datos/
+Disallow: /subpaginas/conexion/
+
+Sitemap: https://www.clinicasaludtotal.com/sitemap.xml

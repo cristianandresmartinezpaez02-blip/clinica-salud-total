@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../conexion/conexion_central.php';
+require_once __DIR__ . '/../../includes/formularios_publicos.php';
 header('Content-Type: application/json; charset=utf-8');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -16,8 +17,18 @@ $metodo   = trim($_POST['metodo_pago'] ?? '');
 $monto    = floatval($_POST['monto'] ?? 0);
 $comentarios = trim($_POST['comentarios'] ?? '');
 
-if ($nombre === '' || $correo === '') {
-    echo json_encode(['ok' => false, 'mensaje' => 'Nombre y correo son obligatorios']);
+$motivoRechazo = revisarEnvioPublico('donacion');
+if ($motivoRechazo === 'spam') {
+    echo json_encode(['ok' => true, 'mensaje' => 'Donación registrada correctamente. Nos contactaremos pronto.']);
+    exit();
+}
+if ($motivoRechazo === 'limite') {
+    echo json_encode(['ok' => false, 'mensaje' => 'Ha enviado demasiadas solicitudes. Intente de nuevo en unos minutos.']);
+    exit();
+}
+
+if (!textoValido($nombre, 100) || !correoValido($correo) || !textoValido($comentarios, 1000, false) || $monto < 0 || $monto > 1000000000) {
+    echo json_encode(['ok' => false, 'mensaje' => 'Revise el nombre, el correo y el monto ingresados.']);
     exit();
 }
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Investigaciones - Clínica Salud Total</title>
+  <title>Investigación y noticias de salud | Clínica Salud Total</title>
   <meta name="description" content="Portal de investigación clínica: proyectos, publicaciones, grupos y datos de la Clínica Salud Total." />
   <style>
     footer {
@@ -142,7 +142,7 @@
 .btn-ingresar:hover {
   background-color: #0077b6;
 }
-    :root{--bg:#f4f6f8;--card:#ffffff;--muted:#6b7280;--accent:#0366a6;--accent-2:#024f7a}
+    :root{--bg:#f4f6f8;--card:#ffffff;--muted:#6b7280;--accent:#0b5394;--accent-2:#024f7a}
     *{box-sizing:border-box}
     body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial; margin:0;background:var(--bg);color:#111}
     header{background:linear-gradient(90deg,var(--accent),var(--accent-2));color:#fff;padding:14px 18px;position:sticky;top:0;z-index:50}

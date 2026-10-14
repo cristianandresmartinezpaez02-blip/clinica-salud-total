@@ -8,6 +8,11 @@ if (!isset($_SESSION['id_usuario']) || $_SESSION['rol'] !== 'admin') {
     exit();
 }
 
+// Protección CSRF: token en formularios y enlaces de acción
+require_once __DIR__ . '/../includes/seguridad_panel.php';
+protegerPanel();
+require_once __DIR__ . '/../includes/panel_layout.php';
+
 // Conexión
 require_once "../conexion/conexion.php";
 require_once "../conexion/contacto_servicio.php";
@@ -367,6 +372,10 @@ $citasPendientes = array_values(array_filter($citas, fn($c) => ($c['estado'] ?? 
 $donacionesPendientes = array_values(array_filter($donaciones, fn($d) => ($d['estado'] ?? 'pendiente') === 'pendiente'));
 $pendientesVerificacion = obtenerUsuariosPendientesVerificacion($conexion);
 $totalPendientesVerificacion = count($pendientesVerificacion);
+
+// Mi perfil y Configuración (procesa sus formularios y prepara los datos)
+$rolLabelModulo = 'Administrador';
+require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
 ?>
 
 
@@ -377,7 +386,7 @@ $totalPendientesVerificacion = count($pendientesVerificacion);
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Panel de Administración - Clínica</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <style>
     body { font-family: 'Segoe UI', sans-serif; }
     .sidebar {
@@ -393,21 +402,23 @@ $totalPendientesVerificacion = count($pendientesVerificacion);
     .page-section { display: none; }
     .page-section.active { display: block; }
   </style>
+    <?php echo panelHead(); ?>
 </head>
-<body>
+<body class="<?php echo e(clasesTemaBody()); ?>">
   <div class="container-fluid">
     <div class="row">
       <!-- Sidebar -->
       <nav class="col-md-2 d-none d-md-block sidebar">
-        <h4 class="text-center mb-4">Clínica Admin</h4>
-        <a href="#" class="active" data-page="dashboardPage">Dashboard</a>
-        <a href="#" data-page="usuariosPage">Usuarios</a>
-        <a href="#" data-page="verificacionPage">Verificar identidad <?php if ($totalPendientesVerificacion > 0): ?><span class="badge bg-warning text-dark"><?php echo $totalPendientesVerificacion; ?></span><?php endif; ?></a>
-        <a href="#" data-page="pacientesPage">Pacientes</a>
-        <a href="#" data-page="medicosPage">Médicos</a>
-        <a href="#" data-page="donacionesPage">Donaciones</a>
-        <a href="#" data-page="citasPage">Citas Médicas</a>
-        <a href="#" data-page="contactosPage">Contactos</a>
+            <?php echo panelBrand('Administración'); ?>
+        <a href="#" class="active" data-page="dashboardPage"><i class="bi bi-grid-1x2"></i> Resumen</a>
+        <a href="#" data-page="usuariosPage"><i class="bi bi-people"></i> Usuarios</a>
+        <a href="#" data-page="verificacionPage"><i class="bi bi-person-check"></i> Verificar identidad <?php if ($totalPendientesVerificacion > 0): ?><span class="badge bg-warning text-dark"><?php echo $totalPendientesVerificacion; ?></span><?php endif; ?></a>
+        <a href="#" data-page="pacientesPage"><i class="bi bi-person-heart"></i> Pacientes</a>
+        <a href="#" data-page="medicosPage"><i class="bi bi-heart-pulse"></i> Médicos</a>
+        <a href="#" data-page="donacionesPage"><i class="bi bi-gift"></i> Donaciones</a>
+        <a href="#" data-page="citasPage"><i class="bi bi-calendar-check"></i> Citas médicas</a>
+        <a href="#" data-page="contactosPage"><i class="bi bi-envelope"></i> Mensajes</a>
+            <?php echo panelSidebarFooter(true); ?>
       </nav>
 
       <!-- Main content -->
@@ -462,8 +473,8 @@ $totalPendientesVerificacion = count($pendientesVerificacion);
                   <i class="bi bi-person-circle"></i> Admin
                 </a>
                 <ul class="dropdown-menu dropdown-menu-end">
-                  <li><a class="dropdown-item" href="#">Perfil</a></li>
-                  <li><a class="dropdown-item" href="#">Configuración</a></li>
+                  <li><a class="dropdown-item" href="#" onclick="showPage('perfilPage'); return false;"><i class="bi bi-person-circle me-2"></i>Mi perfil</a></li>
+                  <li><a class="dropdown-item" href="#" onclick="showPage('configPage'); return false;"><i class="bi bi-gear me-2"></i>Configuración</a></li>
                   <li><a class="dropdown-item" href="../conexion/cerrar_sesion.php">Cerrar Sesión</a></li>
                 </ul>
               </li>
@@ -482,77 +493,101 @@ $totalPendientesVerificacion = count($pendientesVerificacion);
         <div class="content">
           <!-- Dashboard -->
           <div id="dashboardPage" class="page-section active">
-            <h2>Panel de Control</h2>
-            <p>Bienvenido al sistema administrativo de la clínica, <?php echo $_SESSION['nombre']; ?>.</p>
-            
-            <div class="row mt-4">
-              <div class="col-md-3">
-                <div class="card bg-primary text-white">
-                  <div class="card-body">
-                    <h5>Total Usuarios</h5>
-                    <h3><?php echo $totalUsuarios; ?></h3>
-                  </div>
-                </div>
+            <?php
+              $mensajesPendientes = count(array_filter($contactos, fn($c) => ($c['estado'] ?? 'pendiente') === 'pendiente'));
+              $meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+              $dias = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+              $fechaHoy = $dias[(int) date('w')] . ' ' . date('j') . ' de ' . $meses[(int) date('n') - 1] . ' de ' . date('Y');
+              $proximasCitas = array_slice(array_reverse($citasPendientes), 0, 6);
+            ?>
+            <div class="panel-page-head">
+              <h2>Hola, <?php echo htmlspecialchars($_SESSION['nombre'] ?? ''); ?></h2>
+              <p class="text-muted text-capitalize-first">Resumen de la clínica · <?php echo $fechaHoy; ?></p>
+            </div>
+
+            <h6 class="panel-subtitle">Requiere su atención</h6>
+            <div class="row g-3 mb-4">
+              <div class="col-md-4">
+                <a href="#" class="panel-action<?php echo $totalPendientesVerificacion ? ' is-alert' : ''; ?>" onclick="showPage('verificacionPage'); return false;">
+                  <span class="panel-action__ico"><i class="bi bi-person-check"></i></span>
+                  <span><strong><?php echo $totalPendientesVerificacion; ?></strong> identidades por verificar</span>
+                  <i class="bi bi-chevron-right"></i>
+                </a>
               </div>
-              <div class="col-md-3">
-                <div class="card bg-success text-white">
-                  <div class="card-body">
-                    <h5>Total Citas</h5>
-                    <h3><?php echo $totalCitas; ?></h3>
-                  </div>
-                </div>
+              <div class="col-md-4">
+                <a href="#" class="panel-action<?php echo count($citasPendientes) ? ' is-alert' : ''; ?>" onclick="showPage('citasPage'); return false;">
+                  <span class="panel-action__ico"><i class="bi bi-calendar-event"></i></span>
+                  <span><strong><?php echo count($citasPendientes); ?></strong> citas por aprobar</span>
+                  <i class="bi bi-chevron-right"></i>
+                </a>
               </div>
-              <div class="col-md-3">
-                <div class="card bg-info text-white">
-                  <div class="card-body">
-                    <h5>Citas Hoy</h5>
-                    <h3><?php echo $citasHoy; ?></h3>
-                  </div>
-                </div>
-              </div>
-              <div class="col-md-3">
-                <div class="card bg-warning text-white">
-                  <div class="card-body">
-                    <h5>Donaciones</h5>
-                    <h3><?php echo $totalDonaciones; ?></h3>
-                  </div>
-                </div>
+              <div class="col-md-4">
+                <a href="#" class="panel-action<?php echo $mensajesPendientes ? ' is-alert' : ''; ?>" onclick="showPage('contactosPage'); return false;">
+                  <span class="panel-action__ico"><i class="bi bi-envelope"></i></span>
+                  <span><strong><?php echo $mensajesPendientes; ?></strong> mensajes sin responder</span>
+                  <i class="bi bi-chevron-right"></i>
+                </a>
               </div>
             </div>
-            
-            <div class="row mt-3">
-              <div class="col-md-3">
-                <div class="card bg-secondary text-white">
-                  <div class="card-body">
-                    <h5>Contactos</h5>
-                    <h3><?php echo $totalContactos; ?></h3>
+
+            <div class="row g-3">
+              <div class="col-sm-6 col-xl-3">
+                <div class="card bg-primary text-white"><div class="card-body"><h5>Usuarios</h5><h3><?php echo $totalUsuarios; ?></h3><small><?php echo $usuariosActivos; ?> activos</small></div></div>
+              </div>
+              <div class="col-sm-6 col-xl-3">
+                <div class="card bg-success text-white"><div class="card-body"><h5>Citas registradas</h5><h3><?php echo $totalCitas; ?></h3><small><?php echo count($citasPendientes); ?> pendientes</small></div></div>
+              </div>
+              <div class="col-sm-6 col-xl-3">
+                <div class="card bg-info text-white"><div class="card-body"><h5>Citas hoy</h5><h3><?php echo $citasHoy; ?></h3><small><?php echo date('d/m/Y'); ?></small></div></div>
+              </div>
+              <div class="col-sm-6 col-xl-3">
+                <div class="card bg-warning text-white"><div class="card-body"><h5>Donaciones</h5><h3><?php echo $totalDonaciones; ?></h3><small><?php echo count($donacionesPendientes); ?> por gestionar</small></div></div>
+              </div>
+            </div>
+
+            <div class="row g-3 mt-1">
+              <div class="col-lg-7">
+                <div class="card h-100">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-calendar-check me-2"></i>Citas pendientes de aprobación</span>
+                    <a href="#" class="small fw-semibold text-decoration-none" onclick="showPage('citasPage'); return false;">Ver todas</a>
                   </div>
+                  <?php if ($proximasCitas): ?>
+                    <div class="table-responsive">
+                      <table class="table table-hover mb-0">
+                        <thead><tr><th>Paciente</th><th>Servicio</th><th>Fecha</th></tr></thead>
+                        <tbody>
+                          <?php foreach ($proximasCitas as $c): ?>
+                            <tr>
+                              <td class="fw-semibold"><?php echo htmlspecialchars($c['nombre']); ?></td>
+                              <td><?php echo htmlspecialchars($c['servicio'] ?? ''); ?></td>
+                              <td class="text-nowrap"><?php echo $c['fecha'] ? date('d/m/Y', strtotime($c['fecha'])) : '—'; ?> <span class="text-muted"><?php echo $c['hora'] ? date('H:i', strtotime($c['hora'])) : ''; ?></span></td>
+                            </tr>
+                          <?php endforeach; ?>
+                        </tbody>
+                      </table>
+                    </div>
+                  <?php else: ?>
+                    <div class="panel-empty"><i class="bi bi-check2-circle"></i><p>No hay citas esperando aprobación.</p></div>
+                  <?php endif; ?>
                 </div>
               </div>
-              <div class="col-md-3">
-                <div class="card bg-dark text-white">
-                  <div class="card-body">
-                    <h5>Usuarios Activos</h5>
-                    <h3><?php echo $usuariosActivos; ?></h3>
-                  </div>
-                </div>
-              </div>
-              <div class="col-md-6">
-                <div class="card">
-                  <div class="card-header">Notificaciones Recientes</div>
-                  <div class="card-body" style="max-height: 200px; overflow-y: auto;">
-                    <?php 
-                    if (count($notificaciones) > 0) {
-                        foreach ($notificaciones as $notif) {
-                            echo "<div class='alert alert-info mb-2 p-2'>";
-                            echo "<small class='text-muted'>" . date('d/m/Y H:i', strtotime($notif['fecha'])) . "</small><br>";
-                            echo htmlspecialchars($notif['mensaje']);
-                            echo "</div>";
-                        }
-                    } else {
-                        echo "<p class='text-muted'>No hay notificaciones recientes</p>";
-                    }
-                    ?>
+              <div class="col-lg-5">
+                <div class="card h-100">
+                  <div class="card-header"><i class="bi bi-bell me-2"></i>Actividad reciente</div>
+                  <div class="card-body" style="max-height: 340px; overflow-y: auto;">
+                    <?php if ($notificaciones): ?>
+                      <ul class="panel-feed">
+                        <?php foreach (array_slice($notificaciones, 0, 8) as $notif): ?>
+                          <li>
+                            <span class="panel-feed__dot"></span>
+                            <div><?php echo htmlspecialchars($notif['mensaje']); ?><small><?php echo date('d/m/Y H:i', strtotime($notif['fecha'])); ?></small></div>
+                          </li>
+                        <?php endforeach; ?>
+                      </ul>
+                    <?php else: ?>
+                      <div class="panel-empty"><i class="bi bi-inbox"></i><p>Sin actividad reciente.</p></div>
+                    <?php endif; ?>
                   </div>
                 </div>
               </div>
@@ -1112,13 +1147,14 @@ $totalPendientesVerificacion = count($pendientesVerificacion);
             </div>
           </div>
         </div>
+          <?php echo panelSeccionesPerfil($usuarioPerfil, $rolLabelModulo, $prefsConfig); ?>
       </main>
     </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
   <script>
-    const links = document.querySelectorAll('.sidebar a');
+    const links = document.querySelectorAll('.sidebar a[data-page]');
     const sections = document.querySelectorAll('.page-section');
     const defaultPage = <?php echo json_encode($pageRedirect); ?>;
 
@@ -1237,10 +1273,12 @@ $totalPendientesVerificacion = count($pendientesVerificacion);
     function rechazarIdentidad(idUsuario) {
       const motivo = prompt('Motivo del rechazo (opcional):', 'Las fotos no coinciden con el documento o no son legibles');
       if (motivo === null) return;
-      const url = '?verificar_id=' + idUsuario + '&verificar_accion=rechazar&page=verificacionPage&motivo=' + encodeURIComponent(motivo);
+      const url = '?verificar_id=' + idUsuario + '&verificar_accion=rechazar&page=verificacionPage&motivo=' + encodeURIComponent(motivo)
+        + '&_csrf=' + encodeURIComponent(document.querySelector('meta[name="csrf-token"]').content);
       window.location.href = url;
     }
   </script>
 
+<?php echo panelScripts(); ?>
 </body>
 </html>

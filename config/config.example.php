@@ -13,6 +13,8 @@ return [
         'base_url' => '/proyecto_productivo',
         // true solo en desarrollo: muestra errores detallados de PHP
         'debug'    => false,
+        // Zona horaria de la clínica
+        'timezone' => 'America/Bogota',
     ],
 
     'db' => [

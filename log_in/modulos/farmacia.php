@@ -8,6 +8,11 @@ if (!isset($_SESSION['id_usuario']) || !in_array($rol, ['farmacia', 'farmaceuta'
     exit();
 }
 
+// Protección CSRF: token en formularios y enlaces de acción
+require_once __DIR__ . '/../includes/seguridad_panel.php';
+protegerPanel();
+require_once __DIR__ . '/../includes/panel_layout.php';
+
 require_once '../conexion/conexion.php';
 require_once '../conexion/farmacia_servicio.php';
 require_once '../conexion/notificaciones_servicio.php';
@@ -97,6 +102,10 @@ $consultaForm = $idConsultaForm ? obtenerConsultaPorId($conexion, $idConsultaFor
 $facturaRecienCreada = (int) ($_GET['factura_ok'] ?? 0);
 
 $pendientes = count(array_filter($consultas, fn($c) => empty($c['id_factura'])));
+
+// Mi perfil y Configuración (procesa sus formularios y prepara los datos)
+$rolLabelModulo = 'Farmacia';
+require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -105,7 +114,7 @@ $pendientes = count(array_filter($consultas, fn($c) => empty($c['id_factura'])))
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel Farmacia — Clínica Salud Total</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f4f3f8; }
         .sidebar { min-height: 100vh; background: linear-gradient(180deg, #6f42c1, #4a2c8a); padding-top: 20px; color: #fff; }
@@ -118,18 +127,18 @@ $pendientes = count(array_filter($consultas, fn($c) => empty($c['id_factura'])))
         .diag-card { border: none; border-radius: 12px; border-left: 4px solid #6f42c1; margin-bottom: 1rem; }
         .item-row { background: #f8f9fa; border-radius: 8px; padding: .75rem; margin-bottom: .5rem; }
     </style>
+    <?php echo panelHead(); ?>
 </head>
-<body>
+<body class="<?php echo e(clasesTemaBody()); ?>">
 <div class="container-fluid">
     <div class="row">
         <nav class="col-md-2 d-none d-md-block sidebar">
-            <h4 class="text-center mb-4 px-2"><i class="bi bi-capsule"></i> Farmacia</h4>
-            <a href="#" class="active" data-page="dashboardPage"><i class="bi bi-speedometer2"></i> Dashboard</a>
+            <?php echo panelBrand('Farmacia'); ?>
+            <a href="#" class="active" data-page="dashboardPage"><i class="bi bi-grid-1x2"></i> Resumen</a>
             <a href="#" data-page="diagnosticosPage"><i class="bi bi-file-medical"></i> Diagnósticos</a>
             <a href="#" data-page="facturasPage"><i class="bi bi-receipt"></i> Facturas</a>
             <a href="#" data-page="crearFacturaPage"><i class="bi bi-cart-plus"></i> Crear factura</a>
-            <hr class="border-light opacity-25 mx-3">
-            <a href="../conexion/cerrar_sesion.php"><i class="bi bi-box-arrow-right"></i> Cerrar sesión</a>
+            <?php echo panelSidebarFooter(true); ?>
         </nav>
 
         <main class="col-md-10 ms-sm-auto px-md-4">
@@ -290,6 +299,7 @@ $pendientes = count(array_filter($consultas, fn($c) => empty($c['id_factura'])))
                     <?php endif; ?>
                 </div>
             </div>
+            <?php echo panelSeccionesPerfil($usuarioPerfil, $rolLabelModulo, $prefsConfig); ?>
         </main>
     </div>
 </div>
@@ -333,5 +343,6 @@ function bindMedSelects() {
 }
 bindMedSelects();
 </script>
+<?php echo panelScripts(); ?>
 </body>
 </html>

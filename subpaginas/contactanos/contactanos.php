@@ -4,11 +4,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Contáctanos — Clínica Salud Total</title>
+  <title>Contáctenos | Clínica Salud Total</title>
+  <meta name="description" content="Comuníquese con admisiones, facturación o urgencias de la Clínica Salud Total, o déjenos su mensaje.">
+  <meta name="theme-color" content="#0b5394">
 
   <!-- Fuentes e íconos -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-  <script src="https://kit.fontawesome.com/4d8a9e7c22.js" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 
   <style>
 
@@ -149,9 +151,9 @@
   background-color: #0077b6;
 }
     :root {
-      --blue:#013b65;
-      --accent:#0e6ba8;
-      --green:#28a745;
+      --blue:#0b3f6e;
+      --accent:#0b5394;
+      --green:#0f8f7b;
       --muted:#f4f7fb;
       --card:#fff;
       --shadow:0 6px 20px rgba(3,59,101,0.1);
@@ -214,7 +216,7 @@
     .modal .actions{margin-top:10px;display:flex;gap:10px;justify-content:flex-end}
 
     /* TO TOP */
-    .to-top{position:fixed;right:20px;bottom:20px;background:var(--accent);color:white;padding:10px;border-radius:8px;cursor:pointer;display:none;box-shadow:var(--shadow)}
+    .to-top{position:fixed;right:24px;bottom:92px;background:var(--accent);color:white;padding:10px;border-radius:8px;cursor:pointer;display:none;box-shadow:var(--shadow)}
 
     footer{background:var(--blue);color:white;text-align:center;padding:20px;margin-top:20px}
     .socials img {
@@ -248,10 +250,12 @@
         </div>
       <?php elseif (isset($_GET['error'])): ?>
         <div style="background:#f8d7da;color:#721c24;padding:12px;border-radius:8px;margin-bottom:12px;">
-          ❌ No se pudo enviar el mensaje. Verifica los campos e intenta de nuevo.
+          <?php echo ($_GET['error'] ?? '') === 'limite'
+            ? '❌ Ha enviado demasiados mensajes. Intente de nuevo en unos minutos o llámenos.'
+            : '❌ No se pudo enviar el mensaje. Verifica los campos e intenta de nuevo.'; ?>
         </div>
       <?php endif; ?>
-      <form id="contactForm" method="POST" action="guardar_contacto.php">
+      <form id="contactForm" method="POST" action="guardar_contacto.php"><?php echo campoAntispam(); ?>
         <label for="nombre">Nombre</label>
         <input id="nombre" name="nombre" required>
 

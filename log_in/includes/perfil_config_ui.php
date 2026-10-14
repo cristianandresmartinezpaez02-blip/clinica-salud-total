@@ -107,7 +107,7 @@ function procesarAccionesPerfilConfig(mysqli $conexion, int $idUsuario): array
 function clasesTemaBody(): string
 {
     $prefs = obtenerPreferenciasSesion();
-    $cls = 'panel-moderno';
+    $cls = 'panel';
     if (($prefs['tema'] ?? 'claro') === 'oscuro') {
         $cls .= ' tema-oscuro';
     }

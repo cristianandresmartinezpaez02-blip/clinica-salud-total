@@ -4,12 +4,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Pacientes y Visitantes — Clínica Salud Total</title>
+  <title>Pacientes y visitantes | Clínica Salud Total</title>
+  <meta name="description" content="Horarios de visita, derechos y deberes, preparación para cirugía, facturación y todo lo que necesita saber antes de su visita.">
+  <meta name="theme-color" content="#0b5394">
 
   <!-- Fonts & Icons -->
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
-  <script src="https://kit.fontawesome.com/4d8a9e7c22.js" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 
   <!-- Single-file CSS -->
   <style>
@@ -150,9 +152,9 @@
   background-color: #0077b6;
 }
     :root{
-      --blue:#013b65;
-      --accent:#0e6ba8;
-      --green:#28a745;
+      --blue:#0b3f6e;
+      --accent:#0b5394;
+      --green:#0f8f7b;
       --muted:#f4f7fb;
       --card:#ffffff;
       --glass: rgba(255,255,255,0.85);
@@ -303,7 +305,7 @@
     .qa button{width:100%;border:0;background:transparent;text-align:left;padding:12px;font-size:16px;font-weight:700}
     .qa .answer{display:none;padding:10px 12px;color:#445}
 
-    .to-top{position:fixed;right:20px;bottom:20px;background:var(--accent);color:white;padding:12px;border-radius:12px;box-shadow:0 10px 30px rgba(3,59,101,0.18);cursor:pointer;display:none;z-index:9999}
+    .to-top{position:fixed;right:24px;bottom:92px;background:var(--accent);color:white;padding:12px;border-radius:12px;box-shadow:0 10px 30px rgba(3,59,101,0.18);cursor:pointer;display:none;z-index:9999}
 
     /* Resource list */
     .resources{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:12px}
@@ -873,7 +875,7 @@
     <section aria-label="Formulario de contacto" style="margin-top:28px">
       <h2 style="color:var(--blue)">Contáctanos</h2>
       <div style="background:white;padding:18px;border-radius:12px;box-shadow:var(--shadow);margin-top:12px">
-        <form id="contactForm" action="../contactanos/guardar_contacto.php" method="POST" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <form id="contactForm" action="../contactanos/guardar_contacto.php" method="POST" style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><?php echo campoAntispam(); ?>
           <label for="cname">Nombre</label>
           <input id="cname" name="nombre" required maxlength="100">
 
@@ -910,7 +912,7 @@
       <h3 id="modalTitle">Agendar cita / solicitud</h3>
       <p id="modalSubtitle" style="color:#445;margin-bottom:8px">Completa los datos y te contactaremos para confirmar la cita.</p>
 
-      <form id="agendarForm" action="../guardar_cita.php" method="POST">
+      <form id="agendarForm" action="../guardar_cita.php" method="POST"><?php echo campoAntispam(); ?>
         <input type="hidden" name="origen" value="pacientes">
         <label for="nombre">Nombre completo</label>
         <input id="nombre" name="nombre" required placeholder="Ej. Juan Pérez">

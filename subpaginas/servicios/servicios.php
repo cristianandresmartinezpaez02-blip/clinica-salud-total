@@ -3,12 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Servicios — Clínica Salud Total</title>
+  <title>Servicios de salud | Clínica Salud Total</title>
+  <meta name="description" content="Urgencias 24 horas, UCI, hospitalización, cirugía, oncología, trasplantes, chequeos médicos y más servicios de alta complejidad.">
+  <meta name="theme-color" content="#0b5394">
 
   <!-- Fonts & Icons -->
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
-  <script src="https://kit.fontawesome.com/4d8a9e7c22.js" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 
   <!-- Basic styling (inline to mantener un solo archivo) -->
   <style>
@@ -149,9 +151,9 @@
   background-color: #0077b6;
 }
     :root{
-      --blue:#013b65;
-      --accent:#0e6ba8;
-      --green:#28a745;
+      --blue:#0b3f6e;
+      --accent:#0b5394;
+      --green:#0f8f7b;
       --muted:#f4f7fb;
       --card:#ffffff;
       --glass: rgba(255,255,255,0.85);
@@ -305,7 +307,7 @@
     .qa .answer{display:none;padding:10px 12px;color:#445}
 
     /* Back to top */
-    .to-top{position:fixed;right:20px;bottom:20px;background:var(--accent);color:white;padding:12px;border-radius:12px;box-shadow:0 10px 30px rgba(3,59,101,0.18);cursor:pointer;display:none;z-index:9999}
+    .to-top{position:fixed;right:24px;bottom:92px;background:var(--accent);color:white;padding:12px;border-radius:12px;box-shadow:0 10px 30px rgba(3,59,101,0.18);cursor:pointer;display:none;z-index:9999}
 
     /* Responsive tweaks */
     @media (max-width:900px){
@@ -314,7 +316,6 @@
       .modal textarea{grid-column:1/2}
       .socials{min-width:unset}
     }
-     body { background:#013b65; font-family:sans-serif; }
     .social-section {
       display: flex;
       align-items: center;
@@ -459,7 +460,7 @@
 
       <!-- Cirugía ambulatoria -->
       <article class="card" data-tags="cirugia ambulatoria laparoscopia artroscopia minima invasiva" data-category="quirurgico" tabindex="0" aria-labelledby="s4-title">
-        <div class="icon" aria-hidden="true"><i class="fas fa-scalpel"></i></div>
+        <div class="icon" aria-hidden="true"><i class="fas fa-kit-medical"></i></div>
         <h3 id="s4-title">Cirugía ambulatoria</h3>
         <p class="lead">Procedimientos con rápida recuperación y mínimo tiempo de hospitalización.</p>
         <p class="detail">
@@ -768,7 +769,7 @@
     </p>
 
     <!-- Formulario corregido -->
-  <form action="../guardar_cita.php" method="POST">
+  <form action="../guardar_cita.php" method="POST"><?php echo campoAntispam(); ?>
 
 
       <input type="hidden" name="tipo" value="cita">

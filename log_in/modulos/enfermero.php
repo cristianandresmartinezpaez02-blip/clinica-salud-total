@@ -7,6 +7,11 @@ if (!isset($_SESSION['id_usuario']) || $_SESSION['rol'] !== 'enfermero') {
     exit();
 }
 
+// Protección CSRF: token en formularios y enlaces de acción
+require_once __DIR__ . '/../includes/seguridad_panel.php';
+protegerPanel();
+require_once __DIR__ . '/../includes/panel_layout.php';
+
 require_once "../conexion/conexion.php";
 require_once "../conexion/notificaciones_servicio.php";
 require_once "../conexion/contacto_servicio.php";
@@ -102,6 +107,10 @@ $notificaciones = fetchAllEnf($conexion, "SELECT * FROM notificaciones WHERE tip
 $hoy = date('Y-m-d');
 $citasHoyCount = count(array_filter($citas, fn($c) => ($c['fecha'] ?? '') === $hoy));
 $citasPendientes = count(array_filter($citas, fn($c) => ($c['estado'] ?? 'pendiente') === 'pendiente'));
+
+// Mi perfil y Configuración (procesa sus formularios y prepara los datos)
+$rolLabelModulo = 'Enfermería';
+require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
 ?>
 
 <!DOCTYPE html>
@@ -111,7 +120,7 @@ $citasPendientes = count(array_filter($citas, fn($c) => ($c['estado'] ?? 'pendie
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel Enfermero - Clínica</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f8f9fa; }
         .sidebar { min-height: 100vh; background: linear-gradient(180deg, #dc3545, #a71d2a); padding-top: 20px; color: white; }
@@ -121,15 +130,17 @@ $citasPendientes = count(array_filter($citas, fn($c) => ($c['estado'] ?? 'pendie
         .page-section { display: none; }
         .page-section.active { display: block; }
     </style>
+    <?php echo panelHead(); ?>
 </head>
-<body>
+<body class="<?php echo e(clasesTemaBody()); ?>">
     <div class="container-fluid">
         <div class="row">
             <nav class="col-md-2 d-none d-md-block sidebar">
-                <h4 class="text-center mb-4"><i class="bi bi-heart-pulse-fill"></i> Enfermería</h4>
-                <a href="#" class="active" data-page="dashboardPage"><i class="bi bi-speedometer2"></i> Dashboard</a>
+            <?php echo panelBrand('Enfermería'); ?>
+                <a href="#" class="active" data-page="dashboardPage"><i class="bi bi-grid-1x2"></i> Resumen</a>
                 <a href="#" data-page="citasPage"><i class="bi bi-calendar-check"></i> Citas Médicas</a>
                 <a href="#" data-page="contactosPage"><i class="bi bi-envelope"></i> Contactos</a>
+            <?php echo panelSidebarFooter(true); ?>
             </nav>
 
             <main class="col-md-10 ms-sm-auto col-lg-10 px-md-4">
@@ -284,6 +295,7 @@ $citasPendientes = count(array_filter($citas, fn($c) => ($c['estado'] ?? 'pendie
                         </div>
                     </div>
                 </div>
+                <?php echo panelSeccionesPerfil($usuarioPerfil, $rolLabelModulo, $prefsConfig); ?>
             </main>
         </div>
     </div>
@@ -384,7 +396,7 @@ $citasPendientes = count(array_filter($citas, fn($c) => ($c['estado'] ?? 'pendie
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        const links = document.querySelectorAll('.sidebar a');
+        const links = document.querySelectorAll('.sidebar a[data-page]');
         const sections = document.querySelectorAll('.page-section');
         const defaultPage = <?php echo json_encode($pageRedirect); ?>;
 
@@ -445,5 +457,6 @@ $citasPendientes = count(array_filter($citas, fn($c) => ($c['estado'] ?? 'pendie
             });
         }
     </script>
+<?php echo panelScripts(); ?>
 </body>
 </html>

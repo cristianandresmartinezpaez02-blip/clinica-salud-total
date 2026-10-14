@@ -7,6 +7,11 @@ if (!isset($_SESSION['id_usuario']) || $_SESSION['rol'] !== 'medico') {
     exit();
 }
 
+// Protección CSRF: token en formularios y enlaces de acción
+require_once __DIR__ . '/../includes/seguridad_panel.php';
+protegerPanel();
+require_once __DIR__ . '/../includes/panel_layout.php';
+
 require_once "../conexion/conexion.php";
 require_once "../conexion/notificaciones_servicio.php";
 require_once "../conexion/farmacia_servicio.php";
@@ -354,6 +359,10 @@ $nombreMedicoSesion = trim(($_SESSION['nombre'] ?? '') . ' ' . ($_SESSION['apell
 if ($nombreMedicoSesion === '') {
     $nombreMedicoSesion = $_SESSION['nombre'] ?? 'Dr. Médico';
 }
+
+// Mi perfil y Configuración (procesa sus formularios y prepara los datos)
+$rolLabelModulo = 'Médico';
+require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -362,7 +371,7 @@ if ($nombreMedicoSesion === '') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel Médico - Clínica</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f4f7f5; }
         .sidebar {
@@ -425,17 +434,19 @@ if ($nombreMedicoSesion === '') {
         .badge-estado { font-size: 0.75rem; }
         .navbar-top { border-radius: 0 0 12px 12px; }
     </style>
+    <?php echo panelHead(); ?>
 </head>
-<body>
+<body class="<?php echo e(clasesTemaBody()); ?>">
 <div class="container-fluid">
     <div class="row">
         <nav class="col-md-2 d-none d-md-block sidebar">
-            <h4 class="text-center mb-4"><i class="bi bi-heart-pulse"></i> Panel Médico</h4>
-            <a href="#" class="active" data-page="dashboardPage"><i class="bi bi-speedometer2"></i> Dashboard</a>
+            <?php echo panelBrand('Panel médico'); ?>
+            <a href="#" class="active" data-page="dashboardPage"><i class="bi bi-grid-1x2"></i> Resumen</a>
             <a href="#" data-page="citasPage"><i class="bi bi-calendar-check"></i> Citas Médicas</a>
             <a href="#" data-page="pacientesPage"><i class="bi bi-people"></i> Mis Pacientes</a>
             <a href="#" data-page="historialesPage"><i class="bi bi-journal-medical"></i> Historiales</a>
             <a href="#" data-page="diagnosticoPage"><i class="bi bi-clipboard2-pulse"></i> Diagnóstico</a>
+            <?php echo panelSidebarFooter(true); ?>
         </nav>
 
         <main class="col-md-10 ms-sm-auto col-lg-10 px-md-4">
@@ -957,6 +968,7 @@ if ($nombreMedicoSesion === '') {
                     <?php endif; ?>
                 </div>
             </div>
+            <?php echo panelSeccionesPerfil($usuarioPerfil, $rolLabelModulo, $prefsConfig); ?>
         </main>
     </div>
 </div>
@@ -1036,7 +1048,7 @@ if ($nombreMedicoSesion === '') {
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    const links = document.querySelectorAll('.sidebar a');
+    const links = document.querySelectorAll('.sidebar a[data-page]');
     const sections = document.querySelectorAll('.page-section');
     const defaultPage = <?php echo json_encode($pageRedirect); ?>;
 
@@ -1109,5 +1121,6 @@ if ($nombreMedicoSesion === '') {
         });
     }
 </script>
+<?php echo panelScripts(); ?>
 </body>
 </html>

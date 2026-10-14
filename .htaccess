@@ -2,6 +2,9 @@
 Options -Indexes
 DirectoryIndex index.php
 
+# Página de error propia (si mueve el proyecto de carpeta, ajuste esta ruta)
+ErrorDocument 404 /proyecto_productivo/404.php
+
 # Bloquear carpetas y archivos internos (configuración, respaldos de BD, git, docs)
 RedirectMatch 404 ^/(.*/)?(config|base_datos|includes|\.git)(/|$)
 <FilesMatch "\.(sql|md|log|ini|example|lock)$">
