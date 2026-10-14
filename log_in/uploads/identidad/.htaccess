@@ -1,0 +1,3 @@
+# Documentos de identidad y selfies: datos sensibles.
+# Solo se pueden ver a través de log_in/modulos/ver_identidad.php (requiere sesión de administrador).
+Require all denied

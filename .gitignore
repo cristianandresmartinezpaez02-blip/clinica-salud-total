@@ -1,0 +1,20 @@
+# Configuración con contraseñas y tokens (usar config/config.example.php como plantilla)
+config/config.local.php
+
+# Volcados de base de datos con datos reales
+base_datos/*_local.sql
+base_datos/*_backup*.sql
+
+# Archivos subidos por usuarios (documentos de identidad, fotos): NUNCA versionar
+log_in/uploads/**
+!log_in/uploads/.htaccess
+!log_in/uploads/identidad/
+!log_in/uploads/identidad/.htaccess
+
+# Sistema / editores
+.vscode/
+.idea/
+*.log
+Thumbs.db
+desktop.ini
+.DS_Store
