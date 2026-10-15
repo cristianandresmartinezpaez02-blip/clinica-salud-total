@@ -18,7 +18,9 @@ require_once "../conexion/conexion.php";
 require_once "../conexion/contacto_servicio.php";
 require_once "../conexion/notificaciones_servicio.php";
 require_once "../conexion/auth_servicio.php";
-require_once "../conexion/citas_servicio.php"; // estados de cita, médicos y catálogo de especialidades
+require_once "../conexion/citas_servicio.php";
+require_once "../conexion/clinica_servicio.php";
+require_once __DIR__ . '/../includes/reportes_admin.php'; // estados de cita, médicos y catálogo de especialidades
 
 asegurarEsquemaAuth($conexion);
 
@@ -87,6 +89,7 @@ if (isset($_GET['verificar_id'], $_GET['verificar_accion'])) {
     if ($accionVerif === 'aprobar') {
         if (aprobarVerificacionIdentidad($conexion, $idVerificar, $adminNombre)) {
             notificarResultadoVerificacion($conexion, $idVerificar, true);
+            registrarAuditoria($conexion, 'identidad_aprobada', "Usuario #{$idVerificar}", 'usuario', $idVerificar);
             $mensaje = '✅ Identidad verificada. Se avisó al paciente.';
         } else {
             $mensaje = '❌ No se pudo aprobar la verificación.';
@@ -95,6 +98,7 @@ if (isset($_GET['verificar_id'], $_GET['verificar_accion'])) {
         $motivo = trim($_GET['motivo'] ?? '');
         if (rechazarVerificacionIdentidad($conexion, $idVerificar, $adminNombre, $motivo)) {
             notificarResultadoVerificacion($conexion, $idVerificar, false, $motivo);
+            registrarAuditoria($conexion, 'identidad_rechazada', "Usuario #{$idVerificar}: " . ($motivo ?: 'sin motivo'), 'usuario', $idVerificar);
             $mensaje = '🚫 Verificación rechazada. Se avisó al paciente.';
         } else {
             $mensaje = '❌ No se pudo rechazar la verificación.';
@@ -170,6 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['accion'] ?? '', ['
                 $s->bind_param('is', $nuevoId, $cod);
                 $s->execute();
             }
+            registrarAuditoria($conexion, 'usuario_creado', "{$nombre} {$apellido} ({$correo}) como " . rolesSistema()[$rol], 'usuario', $nuevoId);
             $mensaje = '✅ Usuario creado. Ingresa con el correo ' . $correo . ' y la contraseña asignada.';
         } else {
             error_log('admin agregar usuario: ' . $stmt->error);
@@ -198,6 +203,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['accion'] ?? '', ['
                 }
                 $s->execute();
             }
+            registrarAuditoria($conexion, 'usuario_editado', "{$nombre} {$apellido} ({$correo}) · rol " . rolesSistema()[$rol] . " · " . $estado . ($claveNueva !== '' ? ' · contraseña cambiada' : ''), 'usuario', $idEditar);
             $mensaje = '✅ Usuario actualizado.';
         } else {
             error_log('admin editar usuario: ' . $stmt->error);
@@ -240,8 +246,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
 if (isset($_GET['eliminar']) && (int) $_GET['eliminar'] === (int) $_SESSION['id_usuario']) {
     $mensaje = '❌ No puede eliminar su propia cuenta.';
     $pageRedirect = 'usuariosPage';
+} elseif (isset($_GET['eliminar']) && (function () use ($conexion) {
+    // Quien tiene citas o historia clínica no se borra: se desactiva (la historia debe conservarse)
+    $id = (int) $_GET['eliminar'];
+    $r = $conexion->query("SELECT (SELECT COUNT(*) FROM cita WHERE id_usuario = $id OR id_medico_usuario = $id) AS total");
+    return (int) ($r ? $r->fetch_assoc()['total'] : 0) > 0;
+})()) {
+    $mensaje = '❌ Este usuario tiene citas o historia clínica registradas. Por normativa la historia se conserva: desactive la cuenta en lugar de eliminarla.';
+    $pageRedirect = 'usuariosPage';
 } elseif (isset($_GET['eliminar'])) {
     $id = intval($_GET['eliminar']);
+    $filaEliminar = $conexion->query("SELECT nombre, apellido, correo, rol FROM usuario WHERE id_usuario = $id")->fetch_assoc();
 
     $tablasRelacionadas = ['paciente', 'medico', 'enfermero', 'farmaceuta'];
     foreach ($tablasRelacionadas as $tabla) {
@@ -255,6 +270,9 @@ if (isset($_GET['eliminar']) && (int) $_GET['eliminar'] === (int) $_SESSION['id_
     $stmtUsuario = $conexion->prepare("DELETE FROM usuario WHERE id_usuario = ?");
     $stmtUsuario->bind_param("i", $id);
     $stmtUsuario->execute();
+    if ($filaEliminar) {
+        registrarAuditoria($conexion, 'usuario_eliminado', "{$filaEliminar['nombre']} {$filaEliminar['apellido']} ({$filaEliminar['correo']}) · " . (rolesSistema()[$filaEliminar['rol']] ?? $filaEliminar['rol']), 'usuario', $id);
+    }
 
     header("Location: admin.php?page=usuariosPage&msg=" . urlencode("🗑️ Usuario eliminado correctamente"));
     exit();
@@ -368,6 +386,8 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
         <a href="#" data-page="medicosPage"><i class="bi bi-heart-pulse"></i> Médicos</a>
         <a href="#" data-page="citasPage"><i class="bi bi-calendar-check"></i> Citas médicas</a>
         <a href="#" data-page="contactosPage"><i class="bi bi-envelope"></i> Mensajes</a>
+        <a href="#" data-page="reportesPage"><i class="bi bi-graph-up"></i> Reportes</a>
+        <a href="#" data-page="auditoriaPage"><i class="bi bi-shield-lock"></i> Auditoría</a>
             <?php echo panelSidebarFooter(true); ?>
       </nav>
 
@@ -986,6 +1006,8 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
             </div>
           </div>
         </div>
+          <div id="reportesPage" class="page-section"><?php echo renderReportes($conexion); ?></div>
+          <div id="auditoriaPage" class="page-section"><?php echo renderAuditoria($conexion); ?></div>
           <?php echo panelSeccionesPerfil($usuarioPerfil, $rolLabelModulo, $prefsConfig); ?>
       </main>
     </div>

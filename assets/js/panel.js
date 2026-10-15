@@ -41,3 +41,30 @@
     });
   });
 })();
+
+/* Detalle de las gráficas al pasar el cursor o enfocar con teclado (los valores también están en la tabla) */
+(function () {
+  'use strict';
+  var tip = document.getElementById('vizTip');
+  if (!tip) return;
+  var valor = tip.querySelector('strong'), etq = tip.querySelector('span');
+  function mostrar(el) {
+    valor.textContent = el.getAttribute('data-tip-valor');
+    etq.textContent = el.getAttribute('data-tip-etq');
+    tip.hidden = false;
+    var r = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
+    var x = Math.min(Math.max(8, r.left + r.width / 2 - t.width / 2), window.innerWidth - t.width - 8);
+    var y = r.top - t.height - 8;
+    if (y < 8) y = r.bottom + 8;
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+  }
+  function ocultar() { tip.hidden = true; }
+  document.querySelectorAll('[data-tip-valor]').forEach(function (el) {
+    el.addEventListener('pointerenter', function () { mostrar(el); });
+    el.addEventListener('focus', function () { mostrar(el); });
+    el.addEventListener('pointerleave', ocultar);
+    el.addEventListener('blur', ocultar);
+  });
+  window.addEventListener('scroll', ocultar, { passive: true });
+})();

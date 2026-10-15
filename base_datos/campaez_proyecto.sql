@@ -628,13 +628,13 @@ CREATE TABLE `usuario` (
 --
 
 INSERT INTO `usuario` (`id_usuario`, `nombre`, `apellido`, `usuario`, `correo`, `telefono`, `clave`, `rol`, `foto`, `estado`, `fecha_registro`, `documento`, `tipo_documento`, `verificacion_identidad`, `foto_documento`, `foto_selfie_documento`, `fecha_verificacion_identidad`, `verificado_por`, `motivo_rechazo_identidad`, `acepto_tratamiento_datos`, `fecha_acepto_tratamiento`) VALUES
-(1, 'Ana', 'Administradora', 'admin', 'admin@demo.local', '3000000001', '$2y$10$2g6vwmTR3UpLanBm/l6il.Ui4jchUG89VqiBSMmGhVOqvaxtcSPXm', 'admin', NULL, 'activo', '2026-01-01 08:00:00', '1000000001', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
-(2, 'Mario', 'Médico', 'medico', 'medico@demo.local', '3000000002', '$2y$10$Tg3dWraXt/OAiJLA0JtA4uPy7I6jhIzF3auGOZk9WenkcuskIZY2C', 'medico', NULL, 'activo', '2026-01-01 08:00:00', '1000000002', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
-(3, 'Elena', 'Enfermera', 'enfermero', 'enfermero@demo.local', '3000000003', '$2y$10$ZXE4VvqmQblxoaEevki3UuJ2KlOH7ANZDbz/YdZR8kGArrn.tuFuC', 'enfermero', NULL, 'activo', '2026-01-01 08:00:00', '1000000003', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
-(4, 'Felipe', 'Farmacia', 'farmacia', 'farmacia@demo.local', '3000000004', '$2y$10$j7zi8AVKNWYQ.DJzSgGhluGvrCanudibsu.0odn0mvMgGtUPzxNoe', 'farmaceuta', NULL, 'activo', '2026-01-01 08:00:00', '1000000004', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
-(5, 'Paula', 'Paciente', 'paciente', 'paciente@demo.local', '3000000005', '$2y$10$1GQdQQccY9R2phhQ9s0T/.vxPGFGeD/pBLxyu67OacbQBX.OPdNRi', 'paciente', NULL, 'activo', '2026-01-01 08:00:00', '1000000005', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
-(6, 'Rosa', 'Recepción', 'recepcion', 'recepcion@demo.local', '3000000006', '$2y$10$UU9J3EpgP/od5N3heZe/JOFyYp46QyHoMZ7oHLzoHwC/O7qbJf2ba', 'recepcion', NULL, 'activo', '2026-01-01 08:00:00', '1000000006', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
-(7, 'Laura', 'Pediatra', 'pediatra', 'pediatra@demo.local', '3000000007', '$2y$10$1mLIhm4W2VvbDEEhQTMhg.OyIs8pEhlfqwZcBQbBkvjNr5ulZSm0G', 'medico', NULL, 'activo', '2026-01-01 08:00:00', '1000000007', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00');
+(1, 'Ana', 'Administradora', 'admin', 'admin@demo.local', '3000000001', '$2y$10$TtJGoCjH8.3RN.9F5DXdSOycoZm0yDIvUr8Y/QOE4AmscuQgnezhy', 'admin', NULL, 'activo', '2026-01-01 08:00:00', '1000000001', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
+(2, 'Mario', 'Médico', 'medico', 'medico@demo.local', '3000000002', '$2y$10$jb2XemeyzrDXfOAchTsJfOrFYgehKRw9K.2kMDQmMKa6580QMQv5.', 'medico', NULL, 'activo', '2026-01-01 08:00:00', '1000000002', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
+(3, 'Elena', 'Enfermera', 'enfermero', 'enfermero@demo.local', '3000000003', '$2y$10$CPtaOD768l2bRtdEr620cuPGcwsubiceTQQ2aBiaZf.gUZuGaCrNa', 'enfermero', NULL, 'activo', '2026-01-01 08:00:00', '1000000003', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
+(4, 'Felipe', 'Farmacia', 'farmacia', 'farmacia@demo.local', '3000000004', '$2y$10$Ph2LJ6PEAIF6TNC.Gx/iqeqAQ4bKtEJVg5.Yg.qeZhN7Mgncs1kym', 'farmaceuta', NULL, 'activo', '2026-01-01 08:00:00', '1000000004', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
+(5, 'Paula', 'Paciente', 'paciente', 'paciente@demo.local', '3000000005', '$2y$10$d0saDdQnA6PDrgu4VF3DXOc4AC1K8O.BBGCK/EONaLxctz8FX3Bt.', 'paciente', NULL, 'activo', '2026-01-01 08:00:00', '1000000005', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
+(6, 'Rosa', 'Recepción', 'recepcion', 'recepcion@demo.local', '3000000006', '$2y$10$G0j9UwxaDaPLmquA4UoIQOpaRrr/yWXwAWIwux/fYodQb4hRkHvby', 'recepcion', NULL, 'activo', '2026-01-01 08:00:00', '1000000006', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
+(7, 'Laura', 'Pediatra', 'pediatra', 'pediatra@demo.local', '3000000007', '$2y$10$752XMdVED1aKLRNRpRzvFekdpl8R/ie.BLMvCiDHaxNOg0y.1B..K', 'medico', NULL, 'activo', '2026-01-01 08:00:00', '1000000007', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00');
 
 INSERT INTO `medico` (`id_medico`, `id_usuario`, `especialidad`, `licencia_medica`) VALUES (1, 2, 'Medicina General', 'RM-0001'), (2, 7, 'Pediatría', 'RM-0002');
 INSERT INTO `enfermero` (`id_enfermero`, `id_usuario`, `area`) VALUES (1, 3, 'Urgencias');
@@ -1036,6 +1036,77 @@ ALTER TABLE `pagos`
 ALTER TABLE `receta`
   ADD CONSTRAINT `receta_ibfk_1` FOREIGN KEY (`id_consulta`) REFERENCES `consulta` (`id_consulta`);
 COMMIT;
+
+
+-- =====================================================================
+-- Núcleo clínico: triaje, antecedentes, auditoría y recuperación de clave
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS `signos_vitales` (
+  `id_signos` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `id_cita` int(11) DEFAULT NULL,
+  `id_paciente_usuario` int(11) NOT NULL,
+  `presion_sistolica` smallint(6) DEFAULT NULL,
+  `presion_diastolica` smallint(6) DEFAULT NULL,
+  `frecuencia_cardiaca` smallint(6) DEFAULT NULL,
+  `frecuencia_respiratoria` smallint(6) DEFAULT NULL,
+  `temperatura` decimal(4,1) DEFAULT NULL,
+  `saturacion` tinyint(4) DEFAULT NULL,
+  `peso` decimal(5,1) DEFAULT NULL,
+  `talla` smallint(6) DEFAULT NULL,
+  `imc` decimal(4,1) DEFAULT NULL,
+  `glucometria` smallint(6) DEFAULT NULL,
+  `dolor` tinyint(4) DEFAULT NULL,
+  `observaciones` text DEFAULT NULL,
+  `registrado_por` int(11) DEFAULT NULL,
+  `nombre_registro` varchar(120) DEFAULT NULL,
+  `fecha` datetime NOT NULL DEFAULT current_timestamp(),
+  KEY `idx_signos_cita` (`id_cita`),
+  KEY `idx_signos_paciente` (`id_paciente_usuario`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `antecedentes_paciente` (
+  `id_paciente_usuario` int(11) NOT NULL PRIMARY KEY,
+  `grupo_sanguineo` varchar(5) DEFAULT NULL,
+  `alergias` text DEFAULT NULL,
+  `enfermedades_cronicas` text DEFAULT NULL,
+  `medicamentos_habituales` text DEFAULT NULL,
+  `antecedentes_quirurgicos` text DEFAULT NULL,
+  `antecedentes_familiares` text DEFAULT NULL,
+  `actualizado_por` varchar(120) DEFAULT NULL,
+  `fecha_actualizacion` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+INSERT INTO `antecedentes_paciente` (`id_paciente_usuario`, `grupo_sanguineo`, `alergias`, `enfermedades_cronicas`, `medicamentos_habituales`, `antecedentes_quirurgicos`, `antecedentes_familiares`, `actualizado_por`, `fecha_actualizacion`) VALUES
+(5, 'O+', 'Penicilina', 'Hipotiroidismo', 'Levotiroxina 50 mcg', 'Apendicectomía (2015)', 'Madre con diabetes tipo 2', 'Sistema (demostración)', '2026-01-01 08:00:00');
+
+CREATE TABLE IF NOT EXISTS `auditoria` (
+  `id_auditoria` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `id_usuario` int(11) DEFAULT NULL,
+  `rol` varchar(20) DEFAULT NULL,
+  `nombre` varchar(120) DEFAULT NULL,
+  `accion` varchar(60) NOT NULL,
+  `detalle` varchar(500) DEFAULT NULL,
+  `entidad` varchar(40) DEFAULT NULL,
+  `id_entidad` int(11) DEFAULT NULL,
+  `ip` varchar(45) DEFAULT NULL,
+  `fecha` datetime NOT NULL DEFAULT current_timestamp(),
+  KEY `idx_aud_fecha` (`fecha`),
+  KEY `idx_aud_usuario` (`id_usuario`),
+  KEY `idx_aud_entidad` (`entidad`, `id_entidad`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `recuperacion_clave` (
+  `id` int(11) NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `id_usuario` int(11) NOT NULL,
+  `token_hash` char(64) NOT NULL,
+  `expira` datetime NOT NULL,
+  `usado` tinyint(1) NOT NULL DEFAULT 0,
+  `creado` datetime NOT NULL DEFAULT current_timestamp(),
+  UNIQUE KEY `uk_token` (`token_hash`),
+  KEY `idx_rec_usuario` (`id_usuario`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+ALTER TABLE `cita` ADD COLUMN `recordatorio_enviado` tinyint(1) NOT NULL DEFAULT 0;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;

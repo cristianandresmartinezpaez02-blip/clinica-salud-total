@@ -13,6 +13,7 @@
  */
 require_once __DIR__ . '/notificaciones_servicio.php';
 require_once __DIR__ . '/disponibilidad_cita.php';
+require_once __DIR__ . '/clinica_servicio.php';
 
 function estadosCita(): array
 {
@@ -106,6 +107,9 @@ function cambiarEstadoCita(mysqli $conexion, int $idCita, string $nuevo): array
     }
     $nuevo === 'en_sala' ? $stmt->bind_param('i', $idCita) : $stmt->bind_param('si', $nuevo, $idCita);
     $ok = $stmt->execute();
+    if ($ok) {
+        registrarAuditoria($conexion, 'cita_estado', "Cita #{$idCita} ({$cita['nombre']}): " . (estadosCita()[$actual][0] ?? $actual) . ' → ' . estadosCita()[$nuevo][0], 'cita', $idCita);
+    }
 
     if ($ok && $nuevo === 'cancelada' && !empty($cita['id_usuario'])) {
         insertarNotificacionPaciente($conexion, (int) $cita['id_usuario'],
@@ -158,6 +162,7 @@ function confirmarCita(mysqli $conexion, int $idCita, int $idMedicoUsuario, stri
         'telefono_paciente'    => $cita['telefono'] ?? '',
         'telefono_acompanante' => '',
     ]);
+    registrarAuditoria($conexion, 'cita_confirmada', "Cita #{$idCita} ({$cita['nombre']}) con {$medico['nombre']}, consultorio {$consultorio}", 'cita', $idCita);
     return ['ok' => true, 'msg' => "Cita confirmada con {$medico['nombre']} ({$consultorio})."];
 }
 
@@ -209,6 +214,7 @@ function crearCita(mysqli $conexion, array $datos): array
         return ['ok' => false, 'msg' => 'No se pudo guardar la cita. Intente de nuevo.'];
     }
     $idCita = (int) $conexion->insert_id;
+    registrarAuditoria($conexion, 'cita_creada', "Cita #{$idCita}: {$datos['nombre']} — {$datos['servicio']} — {$datos['fecha']} {$hora} (" . origenesCita()[$origen] . ')', 'cita', $idCita);
 
     if ($estado === 'pendiente') {
         notificarNuevaCitaStaff($conexion, $datos, $idCita, $idUsuario);
@@ -271,4 +277,57 @@ function agendaDelDia(mysqli $conexion, string $fecha, ?int $idMedicoUsuario = n
     $stmt->bind_param('s', $fecha);
     $stmt->execute();
     return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+/**
+ * Mueve una cita pendiente o confirmada a otro día/turno (y opcionalmente otro médico).
+ * Valida la agenda igual que una cita nueva y avisa al paciente y al médico.
+ */
+function reprogramarCita(mysqli $conexion, int $idCita, string $fecha, string $hora, ?int $idMedicoUsuario = null, ?string $consultorio = null): array
+{
+    $cita = obtenerCita($conexion, $idCita);
+    if (!$cita || !in_array($cita['estado'], ['pendiente', 'confirmada'], true)) {
+        return ['ok' => false, 'msg' => 'Solo se reprograman citas pendientes o confirmadas.'];
+    }
+    $check = verificarDisponibilidadCita($conexion, $cita['servicio'], $fecha, $hora, $idCita, (int) $cita['id_usuario'] ?: null);
+    if (!$check['ok']) {
+        return ['ok' => false, 'msg' => $check['mensaje']];
+    }
+    $idMedico = $idMedicoUsuario ?: ((int) $cita['id_medico_usuario'] ?: null);
+    $nombreMedico = $cita['nombre_medico'];
+    if ($idMedicoUsuario) {
+        $nombreMedico = null;
+        foreach (obtenerMedicos($conexion) as $m) {
+            if ((int) $m['id_usuario'] === $idMedicoUsuario) {
+                $nombreMedico = $m['nombre'];
+            }
+        }
+        if (!$nombreMedico) {
+            return ['ok' => false, 'msg' => 'Seleccione un médico válido.'];
+        }
+    }
+    $consultorio = $consultorio !== null && trim($consultorio) !== '' ? trim($consultorio) : $cita['consultorio'];
+    $h = date('H:i', strtotime($hora));
+    $stmt = $conexion->prepare('UPDATE cita SET fecha = ?, hora = ?, id_medico_usuario = ?, nombre_medico = ?, consultorio = ?, recordatorio_enviado = 0 WHERE id_cita = ?');
+    $stmt->bind_param('ssissi', $fecha, $h, $idMedico, $nombreMedico, $consultorio, $idCita);
+    if (!$stmt->execute()) {
+        return ['ok' => false, 'msg' => 'No se pudo reprogramar la cita.'];
+    }
+    $antes = date('d/m/Y', strtotime($cita['fecha'])) . ' ' . date('g:i a', strtotime($cita['hora']));
+    $ahora = date('d/m/Y', strtotime($fecha)) . ' ' . date('g:i a', strtotime($h));
+    registrarAuditoria($conexion, 'cita_reprogramada', "Cita #{$idCita} ({$cita['nombre']}): {$antes} → {$ahora}" . ($nombreMedico ? " con {$nombreMedico}" : ''), 'cita', $idCita);
+    if (!empty($cita['id_usuario'])) {
+        insertarNotificacionPaciente($conexion, (int) $cita['id_usuario'],
+            "📅 Su cita de {$cita['servicio']} fue reprogramada.\n\nAntes: {$antes}\nAhora: {$ahora}" . ($nombreMedico ? "\nMédico: {$nombreMedico}" : '') . ($consultorio ? "\nConsultorio: {$consultorio}" : ''),
+            'cita_aprobada');
+    }
+    if ($idMedico) {
+        insertarNotificacionUsuario($conexion, 'medico', $idMedico, "Cita reprogramada #{$idCita}: {$cita['nombre']} — {$cita['servicio']} — ahora {$ahora}", 'nueva_cita');
+    }
+    if (!empty($cita['correo']) && $cita['estado'] === 'confirmada') {
+        enviarCorreo($cita['correo'], 'Su cita fue reprogramada — ' . config('clinica.nombre'),
+            '<p>Hola ' . htmlspecialchars($cita['nombre']) . ',</p><p>Su cita de <strong>' . htmlspecialchars($cita['servicio']) . '</strong> fue reprogramada para el <strong>' . $ahora . '</strong>'
+            . ($nombreMedico ? ' con ' . htmlspecialchars($nombreMedico) : '') . ($consultorio ? ', consultorio ' . htmlspecialchars($consultorio) : '') . '.</p><p>Si no puede asistir, comuníquese con recepción.</p>');
+    }
+    return ['ok' => true, 'msg' => "Cita reprogramada para el {$ahora}."];
 }

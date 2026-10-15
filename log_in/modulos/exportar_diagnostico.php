@@ -17,24 +17,34 @@ if (!$consulta) {
 }
 
 $rol = $_SESSION['rol'] ?? '';
-$permitido = false;
+$idSesion = (int) ($_SESSION['id_usuario'] ?? 0);
+require_once __DIR__ . '/../conexion/clinica_servicio.php';
 
-if (in_array($rol, ['medico', 'admin', 'farmaceuta', 'farmacia'], true)) {
-    $permitido = true;
-} elseif ($rol === 'paciente') {
-    $correoSesion = '';
-    $idU = (int) ($_SESSION['id_usuario'] ?? 0);
-    if ($idU) {
-        $r = $conexion->query("SELECT correo FROM usuario WHERE id_usuario = $idU LIMIT 1");
-        if ($r && ($u = $r->fetch_assoc())) {
-            $correoSesion = $u['correo'] ?? '';
-        }
-    }
-    if ($correoSesion && $correoSesion === ($consulta['paciente_correo'] ?? '')) {
-        $permitido = true;
-    }
+// Paciente dueño de la consulta (por la cita); en registros antiguos, por el correo
+$idPacienteConsulta = 0;
+if (!empty($consulta['id_cita'])) {
+    $rc = $conexion->query('SELECT id_usuario FROM cita WHERE id_cita = ' . (int) $consulta['id_cita']);
+    $idPacienteConsulta = (int) ($rc ? ($rc->fetch_assoc()['id_usuario'] ?? 0) : 0);
 }
 
+$permitido = false;
+if (in_array($rol, ['admin', 'farmaceuta', 'farmacia'], true)) {
+    $permitido = true;
+} elseif ($rol === 'medico') {
+    // Solo el médico que atiende (o atendió) al paciente
+    $permitido = $idPacienteConsulta && medicoAtiendePaciente($conexion, $idSesion, $idPacienteConsulta);
+} elseif ($rol === 'paciente') {
+    if ($idPacienteConsulta) {
+        $permitido = $idPacienteConsulta === $idSesion;
+    } else {
+        $r = $conexion->query("SELECT correo FROM usuario WHERE id_usuario = $idSesion LIMIT 1");
+        $correoSesion = ($r && ($u = $r->fetch_assoc())) ? (string) ($u['correo'] ?? '') : '';
+        $permitido = $correoSesion !== '' && strcasecmp($correoSesion, (string) ($consulta['paciente_correo'] ?? '')) === 0;
+    }
+}
+if ($permitido && $rol !== 'paciente') {
+    registrarAuditoria($conexion, 'historia_vista', 'Abrió el documento de la consulta #' . $idConsulta . ' (' . ($consulta['paciente_nombre'] ?? '') . ')', 'consulta', $idConsulta);
+}
 if (!$permitido) {
     header('Location: ../log_in.php');
     exit;

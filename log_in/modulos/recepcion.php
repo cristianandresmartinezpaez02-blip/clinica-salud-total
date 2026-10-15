@@ -55,6 +55,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         volver($_POST['volver'] ?? 'dashboardPage', ($res['ok'] ? '✅ ' : '❌ ') . $res['msg'], array_filter(['fecha' => $_POST['fecha'] ?? null]));
     }
 
+    if ($accion === 'reprogramar_cita') {
+        $res = reprogramarCita($conexion, $idCita, trim($_POST['fecha'] ?? ''), trim($_POST['hora'] ?? ''), (int) ($_POST['id_medico'] ?? 0) ?: null, $_POST['consultorio'] ?? null);
+        if ($res['ok']) {
+            volver('dashboardPage', '✅ ' . $res['msg'], ['fecha' => $_POST['fecha']]);
+        }
+        volver('reprogramarPage', '❌ ' . $res['msg'], ['reprogramar' => $idCita]);
+    }
+
     if ($accion === 'confirmar_cita') {
         $res = confirmarCita($conexion, $idCita, (int) ($_POST['id_medico'] ?? 0), trim($_POST['consultorio'] ?? ''));
         volver('solicitudesPage', ($res['ok'] ? '✅ ' : '❌ ') . $res['msg']);
@@ -163,6 +171,14 @@ $fichaPaciente = isset($_GET['ver']) ? obtenerPaciente($conexion, (int) $_GET['v
 $citasFicha = $fichaPaciente ? citasDePaciente($conexion, (int) $fichaPaciente['id_usuario'], (string) $fichaPaciente['correo']) : [];
 if (isset($_GET['ver'])) {
     $pageRedirect = 'pacientesPage';
+}
+
+$citaReprogramar = isset($_GET['reprogramar']) ? obtenerCita($conexion, (int) $_GET['reprogramar']) : null;
+if ($citaReprogramar && !in_array($citaReprogramar['estado'], ['pendiente', 'confirmada'], true)) {
+    $citaReprogramar = null;
+}
+if (isset($_GET['reprogramar'])) {
+    $pageRedirect = 'reprogramarPage';
 }
 
 $meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
@@ -294,6 +310,7 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                                 <button class="btn btn-sm <?php echo $clase; ?>"><?php echo $texto; ?></button>
                               </form>
                             <?php endforeach; ?>
+                            <?php if (in_array($est, ['pendiente', 'confirmada'], true)): ?><a href="?reprogramar=<?php echo (int) $c['id_cita']; ?>" class="btn btn-sm btn-outline-primary" title="Cambiar día, hora o médico"><i class="bi bi-arrow-repeat"></i></a><?php endif; ?>
                             <?php if ($est === 'pendiente'): ?><a href="#" class="btn btn-sm btn-warning" onclick="showPage('solicitudesPage'); return false;">Por confirmar</a><?php endif; ?>
                           </div>
                         </td>
@@ -493,6 +510,56 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
           <?php endif; ?>
         </div>
 
+        <!-- ===================== REPROGRAMAR ===================== -->
+        <div id="reprogramarPage" class="page-section">
+          <div class="panel-page-head">
+            <h2><i class="bi bi-arrow-repeat"></i> Reprogramar cita</h2>
+            <p>Mueva la cita a otro día o turno libre, o cambie el médico. El paciente recibe el aviso.</p>
+          </div>
+          <?php if ($citaReprogramar): ?>
+            <div class="card mb-3"><div class="card-body d-flex flex-wrap gap-4">
+              <div><div class="text-muted small">Paciente</div><strong><?php echo e($citaReprogramar['nombre']); ?></strong></div>
+              <div><div class="text-muted small">Especialidad</div><strong><?php echo e($citaReprogramar['servicio']); ?></strong></div>
+              <div><div class="text-muted small">Actual</div><strong><?php echo date('d/m/Y', strtotime($citaReprogramar['fecha'])); ?> · <?php echo e($hora12($citaReprogramar['hora'])); ?></strong></div>
+              <div><div class="text-muted small">Médico</div><strong><?php echo e($citaReprogramar['nombre_medico'] ?: 'Por asignar'); ?></strong></div>
+              <div><div class="text-muted small">Estado</div><?php echo badgeEstadoCita($citaReprogramar['estado']); ?></div>
+            </div></div>
+            <div class="card"><div class="card-body">
+              <form method="POST" class="row g-3" id="formReprogramar">
+                <input type="hidden" name="accion" value="reprogramar_cita">
+                <input type="hidden" name="id_cita" value="<?php echo (int) $citaReprogramar['id_cita']; ?>">
+                <input type="hidden" name="hora" id="rpHora" value="">
+                <input type="hidden" id="rpServicio" value="<?php echo e($citaReprogramar['servicio']); ?>">
+                <div class="col-md-4">
+                  <label class="form-label">Nuevo día</label>
+                  <input type="date" class="form-control" name="fecha" id="rpFecha" required min="<?php echo $hoy; ?>" max="<?php echo date('Y-m-d', strtotime('+' . DIAS_MAX_ANTICIPACION . ' days')); ?>">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Médico</label>
+                  <select class="form-select" name="id_medico">
+                    <option value="">Mantener <?php echo e($citaReprogramar['nombre_medico'] ?: '(sin asignar)'); ?></option>
+                    <?php foreach ($medicos as $m): ?><option value="<?php echo (int) $m['id_usuario']; ?>"><?php echo e($m['nombre'] . ($m['especialidad'] ? ' — ' . $m['especialidad'] : '')); ?></option><?php endforeach; ?>
+                  </select>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Consultorio</label>
+                  <input type="text" class="form-control" name="consultorio" maxlength="50" placeholder="<?php echo e($citaReprogramar['consultorio'] ?: 'Ej: 204'); ?>">
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Turnos disponibles</label>
+                  <div class="turnos" id="rpTurnos"><p class="turnos__vacio">Elija el nuevo día.</p></div>
+                </div>
+                <div class="col-12 d-flex gap-2">
+                  <button class="btn btn-primary"><i class="bi bi-check2"></i> Reprogramar</button>
+                  <a href="?page=dashboardPage" class="btn btn-outline-secondary">Cancelar</a>
+                </div>
+              </form>
+            </div></div>
+          <?php else: ?>
+            <div class="card"><div class="panel-empty"><i class="bi bi-arrow-repeat"></i><p>Elija una cita desde la agenda con el botón <i class="bi bi-arrow-repeat"></i>.</p></div></div>
+          <?php endif; ?>
+        </div>
+
         <!-- ===================== PACIENTES ===================== -->
         <div id="pacientesPage" class="page-section">
           <div class="panel-page-head">
@@ -624,6 +691,34 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
     document.getElementById('formCitaRecepcion').addEventListener('submit', e => {
       if (!hora.value) { e.preventDefault(); vacio('Seleccione uno de los turnos disponibles.'); caja.scrollIntoView({ behavior: 'smooth', block: 'center' }); cargar(); }
     });
+  })();
+</script>
+<script>
+  (function () {
+    const form = document.getElementById('formReprogramar');
+    if (!form) return;
+    const fecha = document.getElementById('rpFecha'), hora = document.getElementById('rpHora'), caja = document.getElementById('rpTurnos');
+    const servicio = document.getElementById('rpServicio').value;
+    const vacio = (t) => { caja.innerHTML = ''; const p = document.createElement('p'); p.className = 'turnos__vacio'; p.textContent = t; caja.appendChild(p); };
+    const fmt = (h) => { const [a, b] = h.split(':').map(Number); return ((a % 12) || 12) + ':' + String(b).padStart(2, '0') + (a < 12 ? ' a. m.' : ' p. m.'); };
+    fecha.addEventListener('change', async () => {
+      hora.value = '';
+      if (!fecha.value) { vacio('Elija el nuevo día.'); return; }
+      vacio('Buscando turnos…');
+      try {
+        const r = await fetch('../conexion/verificar_disponibilidad.php?' + new URLSearchParams({ servicio, fecha: fecha.value }), { credentials: 'same-origin' });
+        const d = await r.json();
+        if (!d.ok || !d.turnos.length) { vacio(d.mensaje || 'Sin turnos libres.'); return; }
+        caja.innerHTML = '';
+        d.turnos.forEach(h => {
+          const b = document.createElement('button');
+          b.type = 'button'; b.className = 'turno'; b.textContent = fmt(h);
+          b.addEventListener('click', () => { caja.querySelectorAll('.turno').forEach(t => t.classList.remove('is-sel')); b.classList.add('is-sel'); hora.value = h; });
+          caja.appendChild(b);
+        });
+      } catch (e) { vacio('No se pudo consultar la agenda.'); }
+    });
+    form.addEventListener('submit', e => { if (!hora.value) { e.preventDefault(); vacio('Seleccione uno de los turnos disponibles.'); } });
   })();
 </script>
 <?php echo panelScripts(); ?>

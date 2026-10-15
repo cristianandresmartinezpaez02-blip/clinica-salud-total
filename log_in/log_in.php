@@ -9,6 +9,7 @@ require_once __DIR__ . '/conexion/conexion.php';
 require_once __DIR__ . '/conexion/rutas.php';
 require_once __DIR__ . '/conexion/auth_servicio.php';
 require_once __DIR__ . '/conexion/notificaciones_servicio.php';
+require_once __DIR__ . '/conexion/clinica_servicio.php';
 require_once __DIR__ . '/includes/seguridad_panel.php'; // csrfToken() / csrfValido()
 require_once __DIR__ . '/../includes/iconos.php';
 
@@ -28,6 +29,12 @@ $success = '';
 $tabActiva = isset($_GET['registro']) ? 'registro' : 'login';
 if (isset($_GET['salio'])) {
     $success = 'Cerró sesión correctamente.';
+}
+if (isset($_GET['expiro'])) {
+    $error = 'Su sesión se cerró por inactividad. Ingrese de nuevo.';
+}
+if (isset($_GET['restablecida'])) {
+    $success = 'Su contraseña fue actualizada. Ya puede ingresar.';
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrfValido($_POST['_csrf'] ?? null)) {
@@ -90,6 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrfValido($_POST['_csrf'] ?? null
                 $stmtP->bind_param('isss', $idNuevo, $docNorm, $nacimiento, $sexo);
                 $stmtP->execute();
                 insertarNotificacionRol($conexion, 'admin', "Nuevo paciente registrado en línea: {$nombre} {$apellido} — verifique su documento.", 'verificacion');
+                registrarAuditoria($conexion, 'registro_paciente', "Registro en línea de {$nombre} {$apellido} ({$correo})", 'usuario', $idNuevo, ['id_usuario' => $idNuevo, 'rol' => 'paciente', 'nombre' => $nombre]);
                 $success = 'Cuenta creada. Revisaremos su documento y podrá ingresar en cuanto sea aprobado (normalmente en menos de 24 horas).';
                 $tabActiva = 'login';
                 $_POST = [];
@@ -111,6 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrfValido($_POST['_csrf'] ?? null
         $error = 'Ingrese su correo y su contraseña.';
     } elseif (!($user = autenticarPorCorreo($conexion, $correo, $clave))) {
         registrarIntentoFallidoLogin();
+        registrarAuditoria($conexion, 'login_fallido', 'Correo: ' . mb_substr($correo, 0, 100), null, null, ['id_usuario' => null, 'rol' => null, 'nombre' => null]);
         $error = 'Correo o contraseña incorrectos.';
     } elseif ($msgBloqueo = puedeIniciarSesion($conexion, $user)) {
         $error = $msgBloqueo;
@@ -121,6 +130,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrfValido($_POST['_csrf'] ?? null
         $_SESSION['nombre'] = $user['nombre'];
         $_SESSION['rol'] = $user['rol'];
         $_SESSION['identidad_verificada'] = true;
+        $_SESSION['ultima_actividad'] = time();
+        registrarAuditoria($conexion, 'login', 'Ingreso correcto');
         header('Location: ' . ($user['rol'] === 'paciente' && $siguiente ? url_agendar_cita() : rutaPanelPorRol($user['rol'])));
         exit;
     }
@@ -205,7 +216,7 @@ $old = fn(string $campo): string => e($_POST[$campo] ?? '');
             </div>
           </div>
           <button type="submit" class="auth__submit"><i class="bi bi-box-arrow-in-right"></i> Ingresar</button>
-          <p class="auth__hint">¿Olvidó su contraseña? Comuníquese con recepción al <?php echo e(config('clinica.telefono')); ?>.</p>
+          <p class="auth__hint"><a href="recuperar.php">¿Olvidó su contraseña?</a></p>
         </form>
       </section>
 

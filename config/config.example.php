@@ -15,6 +15,8 @@ return [
         'debug'    => false,
         // Zona horaria de la clínica
         'timezone' => 'America/Bogota',
+        // Minutos sin actividad para cerrar la sesión de los paneles
+        'minutos_inactividad' => 30,
     ],
 
     'db' => [

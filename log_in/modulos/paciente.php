@@ -18,6 +18,7 @@ require_once "../conexion/farmacia_servicio.php";
 require_once "../conexion/citas_servicio.php";
 require_once "../conexion/auth_servicio.php";
 require_once "../conexion/perfil_servicio.php";
+require_once "../conexion/clinica_servicio.php";
 
 asegurarEsquemaNotificaciones($conexion);
 asegurarEsquemaFarmacia($conexion);
@@ -498,6 +499,26 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                 <div id="historialPage" class="page-section">
                     <h2><i class="bi bi-file-medical"></i> Mi Historial Médico</h2>
                     <p class="text-muted">Consultas registradas cuando el médico finaliza su atención.</p>
+                    <?php $miAnt = obtenerAntecedentes($conexion, $idUsuario); $misSignos = historialSignos($conexion, $idUsuario, 1); $ultSig = $misSignos[0] ?? null; ?>
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-6"><div class="card h-100"><div class="card-body">
+                            <h6 class="fw-bold mb-3"><i class="bi bi-clipboard2-heart"></i> Mis datos de salud</h6>
+                            <p class="mb-1"><strong>Alergias:</strong> <?php echo htmlspecialchars($miAnt['alergias'] ?? 'Sin registrar'); ?></p>
+                            <p class="mb-1"><strong>Grupo sanguíneo:</strong> <?php echo htmlspecialchars($miAnt['grupo_sanguineo'] ?? 'Sin registrar'); ?></p>
+                            <p class="mb-1"><strong>Enfermedades crónicas:</strong> <?php echo htmlspecialchars($miAnt['enfermedades_cronicas'] ?? 'Ninguna registrada'); ?></p>
+                            <p class="mb-0"><strong>Medicamentos:</strong> <?php echo htmlspecialchars($miAnt['medicamentos_habituales'] ?? 'Ninguno registrado'); ?></p>
+                            <small class="text-muted d-block mt-2">Los registra el personal de la clínica. Si algo no es correcto, avísele a enfermería en su próxima cita.</small>
+                        </div></div></div>
+                        <div class="col-md-6"><div class="card h-100"><div class="card-body">
+                            <h6 class="fw-bold mb-3"><i class="bi bi-activity"></i> Últimos signos vitales</h6>
+                            <?php if ($ultSig): ?>
+                                <p class="mb-1"><?php echo htmlspecialchars(resumenSignos($ultSig)); ?></p>
+                                <small class="text-muted">Tomados el <?php echo date('d/m/Y', strtotime($ultSig['fecha'])); ?></small>
+                            <?php else: ?>
+                                <p class="text-muted mb-0">Se registran en el triaje de su próxima cita.</p>
+                            <?php endif; ?>
+                        </div></div></div>
+                    </div>
                     <?php if (count($consultas) > 0): ?>
                         <?php foreach ($consultas as $cons):
                             $nomMed = trim(($cons['med_nom'] ?? '') . ' ' . ($cons['med_ape'] ?? ''));

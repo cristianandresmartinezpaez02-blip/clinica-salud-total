@@ -79,11 +79,29 @@ function inyectarCsrf(string $html): string
     return preg_replace('/<head\b[^>]*>/i', '$0<meta name="csrf-token" content="' . $token . '">', $html, 1);
 }
 
+/** Segundos sin actividad tras los que se cierra la sesión de los paneles (30 minutos por defecto). */
+function segundosInactividad(): int
+{
+    $prueba = (int) getenv('CST_INACTIVIDAD_SEG'); // solo para pruebas automáticas
+    return $prueba > 0 ? $prueba : max(5, (int) config('app.minutos_inactividad', 30)) * 60;
+}
+
 function protegerPanel(): void
 {
     if (session_status() !== PHP_SESSION_ACTIVE) {
         iniciarSesion();
     }
+    // Cierre automático por inactividad (equipos compartidos en consultorios y recepción)
+    $ultima = (int) ($_SESSION['ultima_actividad'] ?? time());
+    if (isset($_SESSION['id_usuario']) && time() - $ultima > segundosInactividad()) {
+        require_once __DIR__ . '/../conexion/clinica_servicio.php';
+        registrarAuditoria(db(), 'sesion_expirada', 'Sin actividad por más de ' . round(segundosInactividad() / 60) . ' minutos');
+        $_SESSION = [];
+        session_regenerate_id(true);
+        header('Location: ' . BASE_URL . '/log_in/log_in.php?expiro=1');
+        exit;
+    }
+    $_SESSION['ultima_actividad'] = time();
     csrfToken();
     if (peticionRequiereCsrf() && !csrfValido($_POST['_csrf'] ?? $_GET['_csrf'] ?? null)) {
         rechazarPeticionCsrf();

@@ -18,11 +18,17 @@ CONFIRMADA ─▶ NO ASISTIÓ  ·  PENDIENTE / CONFIRMADA ─▶ CANCELADA
 | Rol | Qué hace |
 |---|---|
 | **Paciente** | Crea su cuenta (datos, correo, foto de perfil y foto del documento). Cuando el administrador la aprueba, solicita citas eligiendo especialidad, día y turno libre; ve sus citas, historia, fórmulas y facturas; puede cancelar sus citas y cambiar su contraseña. |
-| **Recepción** | Dueña de la agenda: confirma las solicitudes en línea asignando médico y consultorio, agenda citas presenciales y telefónicas (busca al paciente o lo registra en el momento), marca llegadas, inasistencias y cancelaciones. |
-| **Médico** | Ve solo su agenda y la cola de pacientes en sala; registra la consulta (diagnóstico, tratamiento y fórmula), que pasa a farmacia. |
-| **Enfermería** | Consulta la agenda del día y los pacientes en sala; responde mensajes de contacto. |
+| **Recepción** | Dueña de la agenda: confirma las solicitudes en línea asignando médico y consultorio, agenda citas presenciales y telefónicas (busca al paciente o lo registra en el momento), **reprograma**, marca llegadas, inasistencias y cancelaciones. |
+| **Enfermería** | Hace el **triaje** de los pacientes en sala: signos vitales (presión, frecuencias, temperatura, saturación, peso, talla, IMC, glucometría, dolor) y antecedentes (alergias, enfermedades crónicas, medicamentos, cirugías, grupo sanguíneo). Valida rangos y alerta valores anormales. |
+| **Médico** | Ve solo su agenda y la cola de pacientes en sala. Al atender recibe el triaje, las **alergias resaltadas**, los antecedentes y las consultas anteriores; consulta la **historia clínica** de sus pacientes y registra la consulta (diagnóstico, tratamiento y fórmula), que pasa a farmacia. |
 | **Farmacia** | Despacha las fórmulas de las consultas y factura. |
-| **Administrador** | Crea las cuentas del personal, aprueba o rechaza la identidad de los pacientes registrados en línea, supervisa la agenda y responde mensajes. |
+| **Administrador** | Crea las cuentas del personal, aprueba o rechaza la identidad de los pacientes, supervisa la agenda, consulta **reportes** (citas por día, especialidad y médico, inasistencia, pacientes nuevos) y la **auditoría** de accesos. |
+
+### Historia clínica y auditoría
+- La historia es única por paciente; un médico solo la abre si tiene o tuvo una cita asignada con él. Los intentos sin relación de atención se bloquean y quedan marcados en la auditoría.
+- Se registran ingresos, intentos fallidos, cierres de sesión, registros, verificación de identidad, cambios en usuarios, cada movimiento de una cita, el triaje, cada consulta y cada apertura de una historia.
+- Quien tiene citas o historia no se puede eliminar (la historia se conserva); se desactiva.
+- Los paneles cierran la sesión tras 30 minutos sin actividad (`app.minutos_inactividad`).
 
 ### Reglas de la agenda
 - Turnos de 30 minutos. Lunes a viernes 7:00 a.m. – 6:00 p.m., sábados 8:00 a.m. – 1:00 p.m., domingos sin consulta.
@@ -41,6 +47,17 @@ CONFIRMADA ─▶ NO ASISTIÓ  ·  PENDIENTE / CONFIRMADA ─▶ CANCELADA
 Si instala el proyecto en otra carpeta, cambie `app.base_url` en `config/config.local.php` y la ruta de `ErrorDocument` en `.htaccess`.
 
 **¿Ya tenía una base de datos anterior?** El sistema agrega solo el rol Recepción y las columnas nuevas de la agenda. Como ahora se ingresa con **correo**, asigne un correo a cada usuario antiguo desde *Administrador → Usuarios → Editar*.
+
+## Recordatorios automáticos
+
+El script `tareas/recordatorios.php` avisa por el portal y por correo a los pacientes con cita confirmada para el día siguiente (una sola vez por cita). Prográmelo a diario en el **Programador de tareas de Windows** (Crear tarea básica → Diaria → Iniciar un programa):
+
+```
+Programa:   C:
+mpp\php\php.exe
+Argumentos: C:
+mpp\htdocs\proyecto_productivo	areasecordatorios.php
+```
 
 ## Cuentas de demostración
 
@@ -77,6 +94,7 @@ Imagenes/          Imágenes del sitio
 ## Seguridad
 
 - Ingreso con correo y contraseña; contraseñas con `password_hash` (las antiguas en texto plano se convierten al iniciar sesión).
+- Recuperación de contraseña por correo con enlace de un solo uso que vence en 60 minutos (solo se guarda el hash del token).
 - Límite de 5 intentos fallidos de inicio de sesión.
 - Consultas preparadas (`mysqli` + `bind_param`).
 - Sesión con cookies `HttpOnly` y `SameSite=Strict`, regeneración de ID al iniciar sesión.

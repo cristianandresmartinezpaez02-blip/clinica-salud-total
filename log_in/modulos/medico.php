@@ -16,6 +16,7 @@ require_once "../conexion/conexion.php";
 require_once "../conexion/notificaciones_servicio.php";
 require_once "../conexion/farmacia_servicio.php";
 require_once "../conexion/citas_servicio.php";
+require_once "../conexion/clinica_servicio.php";
 
 asegurarEsquemaNotificaciones($conexion);
 
@@ -214,7 +215,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'guard
             if ($idConsulta) {
                 notificarFarmaceutaDiagnostico($conexion, $idConsulta, $nombreCompleto, $diagnostico);
             }
-            $mensaje = '✅ Registrado exitosamente.';
+            if (!empty($cita['id_usuario'])) {
+                $antPrev = obtenerAntecedentes($conexion, (int) $cita['id_usuario']);
+                if (trim($alergias) !== '') { $antPrev['alergias'] = $alergias; }
+                if (trim($medicamentosConsume) !== '') { $antPrev['medicamentos_habituales'] = $medicamentosConsume; }
+                guardarAntecedentes($conexion, (int) $cita['id_usuario'], $antPrev);
+            }
+            registrarAuditoria($conexion, 'consulta_registrada', "Cita #{$idCita} ({$cita['nombre']}): " . mb_substr($diagnostico, 0, 200), 'cita', $idCita);
+            $mensaje = '✅ Consulta registrada. La fórmula quedó disponible para farmacia.';
             $pageRedirect = 'historialesPage';
         } else {
             $mensaje = '❌ Error al guardar el diagnóstico: ' . $conexion->error;
@@ -333,6 +341,32 @@ $pacientes = fetchAll($conexion, "
 
 $citasParaDiagnostico = array_merge($enSala, array_values(array_filter($citas, fn($c) => ($c['estado'] ?? '') === 'confirmada')));
 
+// ---------- Panel clínico del formulario de consulta ----------
+$signosCita = $citaDiagnostico ? signosDeCita($conexion, (int) $citaDiagnostico['id_cita']) : null;
+$antecedentesCita = ($citaDiagnostico && !empty($citaDiagnostico['id_usuario'])) ? obtenerAntecedentes($conexion, (int) $citaDiagnostico['id_usuario']) : [];
+$consultasPrevias = ($citaDiagnostico && !empty($citaDiagnostico['id_usuario'])) ? consultasDePaciente($conexion, (int) $citaDiagnostico['id_usuario']) : [];
+if ($citaDiagnostico && !empty($citaDiagnostico['id_usuario']) && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    registrarAuditoria($conexion, 'historia_vista', "Abrió la consulta de {$citaDiagnostico['nombre']} (cita #{$citaDiagnostico['id_cita']})", 'usuario', (int) $citaDiagnostico['id_usuario']);
+}
+
+// ---------- Historia clínica (solo pacientes que este médico atiende) ----------
+$misPacientesHistoria = fetchAll($conexion, "SELECT DISTINCT c.id_usuario, c.nombre FROM cita c WHERE c.id_usuario IS NOT NULL AND c.estado <> 'cancelada' AND c.id_medico_usuario = $idUsuario ORDER BY c.nombre");
+$fichaHistoria = null;
+$antecedentesHistoria = $signosHistoria = $consultasHistoria = [];
+if (!empty($_GET['historia'])) {
+    $idHist = (int) $_GET['historia'];
+    $pageRedirect = 'historiaPage';
+    if (medicoAtiendePaciente($conexion, $idUsuario, $idHist)) {
+        $fichaHistoria = fichaPaciente($conexion, $idHist);
+        $antecedentesHistoria = obtenerAntecedentes($conexion, $idHist);
+        $signosHistoria = historialSignos($conexion, $idHist, 12);
+        $consultasHistoria = consultasDePaciente($conexion, $idHist);
+        registrarAuditoria($conexion, 'historia_vista', 'Consultó la historia clínica de ' . ($fichaHistoria['nombre'] ?? '') . ' ' . ($fichaHistoria['apellido'] ?? ''), 'usuario', $idHist);
+    } else {
+        registrarAuditoria($conexion, 'historia_vista', "Intento DENEGADO de ver la historia del usuario #{$idHist} (sin relación de atención)", 'usuario', $idHist);
+    }
+}
+
 $especialidadMedico = $medicoRow[0]['especialidad'] ?? 'Medicina General';
 $nombreMedicoSesion = trim(($_SESSION['nombre'] ?? '') . ' ' . ($_SESSION['apellido'] ?? ''));
 if ($nombreMedicoSesion === '') {
@@ -404,6 +438,11 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
             margin: 20px 0 14px;
         }
         .seccion-titulo:first-child { margin-top: 0; }
+        .alerta-alergia { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; border-radius: 10px; padding: .65rem 1rem; font-weight: 700; }
+        .panel-clinico { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; background: #f6f9fc; border: 1px solid #e4e9f0; border-radius: 12px; padding: 1rem 1.1rem; }
+        .panel-clinico__titulo { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #0b5394; margin-bottom: .4rem; }
+        @media (max-width: 992px) { .panel-clinico { grid-template-columns: 1fr; } }
+        body.tema-oscuro .panel-clinico { background: #172538; border-color: #24344a; }
         .dato-paciente {
             background: #f8f9fa;
             border-radius: 8px;
@@ -423,7 +462,8 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
             <a href="#" class="active" data-page="dashboardPage"><i class="bi bi-grid-1x2"></i> Resumen</a>
             <a href="#" data-page="citasPage"><i class="bi bi-calendar-check"></i> Citas Médicas</a>
             <a href="#" data-page="pacientesPage"><i class="bi bi-people"></i> Mis Pacientes</a>
-            <a href="#" data-page="historialesPage"><i class="bi bi-journal-medical"></i> Historiales</a>
+            <a href="#" data-page="historiaPage"><i class="bi bi-person-lines-fill"></i> Historia clínica</a>
+            <a href="#" data-page="historialesPage"><i class="bi bi-journal-medical"></i> Mis consultas</a>
             <a href="#" data-page="diagnosticoPage"><i class="bi bi-clipboard2-pulse"></i> Diagnóstico</a>
             <?php echo panelSidebarFooter(true); ?>
         </nav>
@@ -666,6 +706,105 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                 </div>
 
                 <!-- Historiales -->
+                <div id="historiaPage" class="page-section">
+                    <div class="d-flex justify-content-between align-items-end flex-wrap gap-3 mb-3">
+                        <div>
+                            <h2 class="mb-1"><i class="bi bi-journal-medical"></i> Historia clínica</h2>
+                            <p class="text-muted mb-0">Disponible para los pacientes que usted atiende. Cada consulta queda registrada en la auditoría.</p>
+                        </div>
+                        <form method="GET" class="d-flex gap-2">
+                            <select name="historia" class="form-select" onchange="this.form.submit()" aria-label="Paciente">
+                                <option value="">Elija un paciente…</option>
+                                <?php foreach ($misPacientesHistoria as $mp): ?>
+                                    <option value="<?php echo (int) $mp['id_usuario']; ?>"<?php echo $fichaHistoria && (int) $fichaHistoria['id_usuario'] === (int) $mp['id_usuario'] ? ' selected' : ''; ?>><?php echo htmlspecialchars($mp['nombre']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </form>
+                    </div>
+
+                    <?php if ($fichaHistoria): ?>
+                        <div class="row g-3">
+                            <div class="col-lg-4">
+                                <div class="card mb-3">
+                                    <div class="card-body">
+                                        <h5 class="fw-bold mb-1"><?php echo htmlspecialchars($fichaHistoria['nombre'] . ' ' . $fichaHistoria['apellido']); ?></h5>
+                                        <p class="text-muted small mb-3"><?php echo htmlspecialchars(trim(($fichaHistoria['tipo_documento'] ?? '') . ' ' . ($fichaHistoria['documento'] ?? ''))); ?></p>
+                                        <dl class="row small mb-0">
+                                            <dt class="col-5 text-muted fw-normal">Edad</dt><dd class="col-7"><?php echo $fichaHistoria['edad'] !== null ? (int) $fichaHistoria['edad'] . ' años' : '—'; ?></dd>
+                                            <dt class="col-5 text-muted fw-normal">Sexo</dt><dd class="col-7"><?php echo htmlspecialchars($fichaHistoria['sexo'] ?: '—'); ?></dd>
+                                            <dt class="col-5 text-muted fw-normal">Grupo sanguíneo</dt><dd class="col-7"><?php echo htmlspecialchars($antecedentesHistoria['grupo_sanguineo'] ?? '—'); ?></dd>
+                                            <dt class="col-5 text-muted fw-normal">Teléfono</dt><dd class="col-7"><?php echo htmlspecialchars($fichaHistoria['telefono'] ?? '—'); ?></dd>
+                                        </dl>
+                                    </div>
+                                </div>
+                                <?php if (!empty($antecedentesHistoria['alergias'])): ?>
+                                    <div class="alerta-alergia mb-3"><i class="bi bi-exclamation-octagon-fill"></i> Alergias: <?php echo htmlspecialchars($antecedentesHistoria['alergias']); ?></div>
+                                <?php endif; ?>
+                                <div class="card">
+                                    <div class="card-header">Antecedentes</div>
+                                    <div class="card-body small">
+                                        <?php $hayAnt = false; foreach (camposAntecedentes() as $campo => $etq): if ($campo === 'alergias' || empty($antecedentesHistoria[$campo])) continue; $hayAnt = true; ?>
+                                            <p class="mb-2"><strong><?php echo $etq; ?>:</strong> <?php echo htmlspecialchars($antecedentesHistoria[$campo]); ?></p>
+                                        <?php endforeach; ?>
+                                        <?php if (!$hayAnt): ?><p class="text-muted mb-0">Sin antecedentes registrados.</p><?php endif; ?>
+                                        <?php if (!empty($antecedentesHistoria['actualizado_por'])): ?><p class="text-muted mb-0 mt-2" style="font-size:.78rem">Actualizado por <?php echo htmlspecialchars($antecedentesHistoria['actualizado_por']); ?> · <?php echo date('d/m/Y', strtotime($antecedentesHistoria['fecha_actualizacion'])); ?></p><?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-lg-8">
+                                <div class="card mb-3">
+                                    <div class="card-header"><i class="bi bi-activity me-2"></i>Evolución de signos vitales</div>
+                                    <?php if ($signosHistoria): ?>
+                                        <div class="table-responsive"><table class="table table-sm mb-0 align-middle">
+                                            <thead><tr><th>Fecha</th><th>PA</th><th>FC</th><th>T °C</th><th>SpO₂</th><th>Peso</th><th>IMC</th><th>Dolor</th></tr></thead>
+                                            <tbody>
+                                            <?php foreach ($signosHistoria as $sv): $al = alertasSignos($sv); ?>
+                                                <tr<?php echo $al ? ' class="table-warning" title="' . htmlspecialchars(implode(', ', $al)) . '"' : ''; ?>>
+                                                    <td class="text-nowrap"><?php echo date('d/m/Y', strtotime($sv['fecha'])); ?></td>
+                                                    <td><?php echo $sv['presion_sistolica'] ? (int) $sv['presion_sistolica'] . '/' . (int) $sv['presion_diastolica'] : '—'; ?></td>
+                                                    <td><?php echo $sv['frecuencia_cardiaca'] ?: '—'; ?></td>
+                                                    <td><?php echo $sv['temperatura'] ?? '—'; ?></td>
+                                                    <td><?php echo $sv['saturacion'] ? $sv['saturacion'] . '%' : '—'; ?></td>
+                                                    <td><?php echo $sv['peso'] ? $sv['peso'] . ' kg' : '—'; ?></td>
+                                                    <td><?php echo $sv['imc'] ?? '—'; ?></td>
+                                                    <td><?php echo $sv['dolor'] !== null ? (int) $sv['dolor'] . '/10' : '—'; ?></td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                            </tbody>
+                                        </table></div>
+                                    <?php else: ?>
+                                        <div class="panel-empty"><i class="bi bi-activity"></i><p>Sin signos vitales registrados.</p></div>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="card">
+                                    <div class="card-header"><i class="bi bi-clipboard2-pulse me-2"></i>Consultas (<?php echo count($consultasHistoria); ?>)</div>
+                                    <?php if ($consultasHistoria): ?>
+                                        <div class="list-group list-group-flush">
+                                            <?php foreach ($consultasHistoria as $co): ?>
+                                                <div class="list-group-item">
+                                                    <div class="d-flex justify-content-between flex-wrap gap-2">
+                                                        <strong><?php echo htmlspecialchars($co['servicio']); ?> · <?php echo htmlspecialchars($co['nombre_medico'] ?? ''); ?></strong>
+                                                        <span class="text-muted small"><?php echo date('d/m/Y g:i a', strtotime($co['fecha_consulta'])); ?></span>
+                                                    </div>
+                                                    <p class="mb-1 mt-2"><span class="text-muted small text-uppercase fw-bold">Diagnóstico</span><br><?php echo nl2br(htmlspecialchars($co['diagnostico'] ?? '')); ?></p>
+                                                    <?php if (!empty($co['medicamentos_formulados'])): ?><p class="mb-1 small"><strong>Fórmula:</strong> <?php echo nl2br(htmlspecialchars($co['medicamentos_formulados'])); ?></p><?php endif; ?>
+                                                    <a class="small" href="exportar_diagnostico.php?id=<?php echo (int) $co['id_consulta']; ?>&formato=ver" target="_blank" rel="noopener">Ver documento completo</a>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    <?php else: ?>
+                                        <div class="panel-empty"><i class="bi bi-journal"></i><p>Este paciente aún no tiene consultas registradas.</p></div>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
+                    <?php elseif (isset($_GET['historia']) && $_GET['historia'] !== ''): ?>
+                        <div class="alert alert-warning">No tiene una relación de atención con ese paciente, por eso no puede ver su historia.</div>
+                    <?php else: ?>
+                        <div class="card"><div class="panel-empty"><i class="bi bi-person-lines-fill"></i><p>Elija uno de sus pacientes para ver su historia clínica.</p></div></div>
+                    <?php endif; ?>
+                </div>
+
                 <div id="historialesPage" class="page-section">
                     <h2>Historiales Médicos</h2>
                     <p class="text-muted">Consultas y diagnósticos registrados</p>
@@ -737,6 +876,39 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                         </div>
 
                         <div class="cuerpo">
+                            <?php if (!empty($antecedentesCita['alergias'])): ?>
+                                <div class="alerta-alergia mb-3"><i class="bi bi-exclamation-octagon-fill"></i> ALERGIAS: <?php echo htmlspecialchars($antecedentesCita['alergias']); ?></div>
+                            <?php endif; ?>
+                            <div class="panel-clinico mb-4">
+                                <div>
+                                    <div class="panel-clinico__titulo"><i class="bi bi-heart-pulse"></i> Triaje de enfermería</div>
+                                    <?php if ($signosCita): $alertasCita = alertasSignos($signosCita); ?>
+                                        <p class="mb-1"><?php echo htmlspecialchars(resumenSignos($signosCita)); ?></p>
+                                        <small class="text-muted"><?php echo htmlspecialchars($signosCita['nombre_registro'] ?? ''); ?> · <?php echo date('g:i a', strtotime($signosCita['fecha'])); ?><?php echo !empty($signosCita['observaciones']) ? ' · ' . htmlspecialchars($signosCita['observaciones']) : ''; ?></small>
+                                        <?php if ($alertasCita): ?><div class="text-warning-emphasis small fw-semibold mt-1"><i class="bi bi-exclamation-triangle"></i> <?php echo htmlspecialchars(implode(' · ', $alertasCita)); ?></div><?php endif; ?>
+                                    <?php else: ?>
+                                        <p class="text-muted mb-0">Sin triaje registrado. Registre los signos en la sección «Signos vitales».</p>
+                                    <?php endif; ?>
+                                </div>
+                                <div>
+                                    <div class="panel-clinico__titulo"><i class="bi bi-clipboard2-heart"></i> Antecedentes</div>
+                                    <?php $resAnt = array_filter([
+                                        'Crónicas' => $antecedentesCita['enfermedades_cronicas'] ?? '',
+                                        'Medicamentos' => $antecedentesCita['medicamentos_habituales'] ?? '',
+                                        'Cirugías' => $antecedentesCita['antecedentes_quirurgicos'] ?? '',
+                                        'Grupo' => $antecedentesCita['grupo_sanguineo'] ?? '',
+                                    ]); ?>
+                                    <?php if ($resAnt): foreach ($resAnt as $k => $v): ?><div class="small"><strong><?php echo $k; ?>:</strong> <?php echo htmlspecialchars($v); ?></div><?php endforeach; else: ?><p class="text-muted mb-0">Sin antecedentes registrados.</p><?php endif; ?>
+                                </div>
+                                <div>
+                                    <div class="panel-clinico__titulo"><i class="bi bi-journal-medical"></i> Consultas anteriores (<?php echo count($consultasPrevias); ?>)</div>
+                                    <?php foreach (array_slice($consultasPrevias, 0, 3) as $cp): ?>
+                                        <div class="small mb-1"><strong><?php echo date('d/m/Y', strtotime($cp['fecha_consulta'])); ?></strong> · <?php echo htmlspecialchars($cp['servicio']); ?> — <?php echo htmlspecialchars(mb_strimwidth((string) $cp['diagnostico'], 0, 70, '…')); ?></div>
+                                    <?php endforeach; ?>
+                                    <?php if (!$consultasPrevias): ?><p class="text-muted mb-0">Primera consulta en la clínica.</p><?php endif; ?>
+                                    <?php if (!empty($citaDiagnostico['id_usuario'])): ?><a class="small" href="?historia=<?php echo (int) $citaDiagnostico['id_usuario']; ?>">Ver historia completa</a><?php endif; ?>
+                                </div>
+                            </div>
                             <div class="seccion-titulo"><i class="bi bi-person-vcard"></i> Datos del paciente</div>
                             <div class="row g-3">
                                 <div class="col-md-6">
@@ -866,11 +1038,11 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                                 </div>
                                 <div class="col-md-3">
                                     <label class="form-label">Alergias</label>
-                                    <textarea class="form-control" name="alergias" rows="3" placeholder="Medicamentos, alimentos, otros..."></textarea>
+                                    <textarea class="form-control" name="alergias" rows="3" placeholder="Medicamentos, alimentos, otros..."><?php echo htmlspecialchars($antecedentesCita['alergias'] ?? ''); ?></textarea>
                                 </div>
                                 <div class="col-md-3">
                                     <label class="form-label">Medicamentos que consume</label>
-                                    <textarea class="form-control" name="medicamentos_consume" rows="3" placeholder="Medicamentos actuales del paciente"></textarea>
+                                    <textarea class="form-control" name="medicamentos_consume" rows="3" placeholder="Medicamentos actuales del paciente"><?php echo htmlspecialchars($antecedentesCita['medicamentos_habituales'] ?? ''); ?></textarea>
                                 </div>
                             </div>
 
@@ -879,28 +1051,28 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                                 <div class="col-md-3">
                                     <label class="form-label">Temperatura</label>
                                     <div class="input-group">
-                                        <input type="text" class="form-control" name="temperatura" placeholder="36.5">
+                                        <input type="text" class="form-control" name="temperatura" placeholder="36.5" value="<?php echo htmlspecialchars((string) ($signosCita['temperatura'] ?? '')); ?>">
                                         <span class="input-group-text">°C</span>
                                     </div>
                                 </div>
                                 <div class="col-md-3">
                                     <label class="form-label">Presión arterial</label>
                                     <div class="input-group">
-                                        <input type="text" class="form-control" name="presion_arterial" placeholder="120/80">
+                                        <input type="text" class="form-control" name="presion_arterial" placeholder="120/80" value="<?php echo !empty($signosCita['presion_sistolica']) ? (int) $signosCita['presion_sistolica'] . '/' . (int) $signosCita['presion_diastolica'] : ''; ?>">
                                         <span class="input-group-text">mmHg</span>
                                     </div>
                                 </div>
                                 <div class="col-md-3">
                                     <label class="form-label">Peso</label>
                                     <div class="input-group">
-                                        <input type="text" class="form-control" name="peso" placeholder="70">
+                                        <input type="text" class="form-control" name="peso" placeholder="70" value="<?php echo htmlspecialchars((string) ($signosCita['peso'] ?? '')); ?>">
                                         <span class="input-group-text">kg</span>
                                     </div>
                                 </div>
                                 <div class="col-md-3">
                                     <label class="form-label">Estatura</label>
                                     <div class="input-group">
-                                        <input type="text" class="form-control" name="estatura" placeholder="170">
+                                        <input type="text" class="form-control" name="estatura" placeholder="170" value="<?php echo htmlspecialchars((string) ($signosCita['talla'] ?? '')); ?>">
                                         <span class="input-group-text">cm</span>
                                     </div>
                                 </div>

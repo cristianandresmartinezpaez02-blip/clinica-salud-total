@@ -51,6 +51,8 @@ function cambiarClaveUsuario(mysqli $conexion, int $idUsuario, string $claveActu
     $stmtU = $conexion->prepare("UPDATE usuario SET clave = ? WHERE id_usuario = ?");
     $stmtU->bind_param('si', $nuevoHash, $idUsuario);
     if ($stmtU->execute()) {
+        require_once __DIR__ . '/clinica_servicio.php';
+        registrarAuditoria($conexion, 'clave_cambiada', 'Cambio de contraseña desde el perfil', 'usuario', $idUsuario);
         return ['ok' => true, 'msg' => 'Contraseña actualizada correctamente.'];
     }
     return ['ok' => false, 'msg' => 'No se pudo actualizar la contraseña.'];
