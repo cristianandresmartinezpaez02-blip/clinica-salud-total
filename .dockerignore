@@ -1,0 +1,11 @@
+.git
+.vscode
+.idea
+config/config.local.php
+base_datos/*_local.sql
+base_datos/*_backup*.sql
+respaldos
+log_in/uploads/identidad/*
+log_in/uploads/perfil/*
+log_in/uploads/resultados/*
+!log_in/uploads/**/.htaccess

@@ -17,6 +17,33 @@ if (getenv('CST_DB_NAME')) {
     $GLOBALS['APP_CONFIG']['db']['name'] = getenv('CST_DB_NAME');
 }
 
+// Variables de entorno (hosting en la nube como Render): tienen prioridad sobre el archivo de configuración
+foreach ([
+    'APP_BASE_URL'        => ['app', 'base_url', 'texto'],
+    'APP_DEBUG'           => ['app', 'debug', 'bool'],
+    'APP_FORZAR_HTTPS'    => ['app', 'forzar_https', 'bool'],
+    'DB_HOST'             => ['db', 'host', 'texto'],
+    'DB_PORT'             => ['db', 'port', 'entero'],
+    'DB_USER'             => ['db', 'user', 'texto'],
+    'DB_PASS'             => ['db', 'pass', 'texto'],
+    'DB_NAME'             => ['db', 'name', 'texto'],
+    'DB_SSL'              => ['db', 'ssl', 'bool'],
+    'MAIL_GMAIL_USER'     => ['mail', 'gmail_user', 'texto'],
+    'MAIL_GMAIL_PASSWORD' => ['mail', 'gmail_password', 'texto'],
+] as $__var => [$__seccion, $__clave, $__tipo]) {
+    $__valor = getenv($__var);
+    if ($__valor === false) {
+        continue;
+    }
+    if ($__tipo === 'bool') {
+        $__valor = filter_var($__valor, FILTER_VALIDATE_BOOLEAN);
+    } elseif ($__tipo === 'entero') {
+        $__valor = (int) $__valor;
+    }
+    $GLOBALS['APP_CONFIG'][$__seccion][$__clave] = $__valor;
+}
+unset($__var, $__seccion, $__clave, $__tipo, $__valor);
+
 /** Lee un valor de configuración con notación de puntos: config('db.host'). */
 function config(string $clave, $porDefecto = null)
 {
@@ -92,11 +119,21 @@ function db(): mysqli
         return $conexion;
     }
     mysqli_report(MYSQLI_REPORT_OFF);
-    $conexion = @new mysqli(
+    $conexion = mysqli_init();
+    $banderas = 0;
+    // Las bases MySQL en la nube (Aiven, TiDB...) exigen conexión cifrada
+    if (config('db.ssl')) {
+        $conexion->ssl_set(null, null, null, null, null);
+        $banderas = MYSQLI_CLIENT_SSL;
+    }
+    @$conexion->real_connect(
         config('db.host', 'localhost'),
         config('db.user', 'root'),
         config('db.pass', ''),
-        config('db.name', 'campaez_proyecto')
+        config('db.name', 'campaez_proyecto'),
+        (int) config('db.port', 3306),
+        null,
+        $banderas
     );
     if ($conexion->connect_errno) {
         error_log('Error de conexión MySQL: ' . $conexion->connect_error);
