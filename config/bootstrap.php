@@ -38,6 +38,17 @@ error_reporting(E_ALL);
 ini_set('display_errors', config('app.debug') ? '1' : '0');
 ini_set('log_errors', '1');
 
+// HTTPS en producción: redirige a https y pide al navegador usar siempre https (HSTS)
+$__https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+if (PHP_SAPI !== 'cli' && config('app.forzar_https') && !$__https && !headers_sent()) {
+    header('Location: https://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . ($_SERVER['REQUEST_URI'] ?? '/'), true, 301);
+    exit;
+}
+if (PHP_SAPI !== 'cli' && $__https && !headers_sent()) {
+    header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+}
+unset($__https);
+
 if (!defined('BASE_URL')) {
     define('BASE_URL', rtrim((string) config('app.base_url', ''), '/'));
 }

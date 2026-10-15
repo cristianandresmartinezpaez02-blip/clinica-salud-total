@@ -19,6 +19,11 @@ require_once __DIR__ . '/../log_in/conexion/clinica_servicio.php';
 
 asegurarEsquemaCitas($conexion);
 asegurarEsquemaClinico($conexion);
+$vencidas = vencerPropuestas($conexion); // propuestas de cambio sin respuesta en 48 h
+if ($vencidas) {
+    echo "Propuestas vencidas: {$vencidas}
+";
+}
 
 $fecha = $argv[1] ?? date('Y-m-d', strtotime('+1 day'));
 if (!DateTime::createFromFormat('Y-m-d', $fecha)) {

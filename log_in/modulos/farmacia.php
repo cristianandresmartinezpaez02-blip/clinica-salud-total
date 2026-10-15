@@ -53,15 +53,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'crear
         $mensaje = '❌ Agregue al menos un medicamento a la factura.';
         $pageRedirect = 'facturasPage';
     } else {
-        $idFactura = crearFacturaFarmacia($conexion, $idConsulta, $idFarmaceuta, $items, $obs);
+        $errorFactura = null;
+        $idFactura = crearFacturaFarmacia($conexion, $idConsulta, $idFarmaceuta, $items, $obs, $errorFactura);
         if ($idFactura) {
             header('Location: farmacia.php?page=facturasPage&factura_ok=' . $idFactura);
             exit;
         } else {
-            $mensaje = '❌ No se pudo crear la factura (puede que ya exista una para esta consulta).';
-            $pageRedirect = 'diagnosticosPage';
+            $mensaje = '❌ ' . ($errorFactura ?: 'No se pudo crear la factura.');
+            $pageRedirect = 'crearFacturaPage';
+            $_GET['id_consulta'] = $idConsulta;
         }
     }
+}
+
+// Inventario: entradas, ajustes y existencia mínima
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['accion'] ?? '', ['inv_entrada', 'inv_ajuste', 'inv_minimo'], true)) {
+    $idMed = (int) ($_POST['id_medicamento'] ?? 0);
+    if ($_POST['accion'] === 'inv_entrada') {
+        $precio = trim((string) ($_POST['precio'] ?? '')) !== '' ? (float) $_POST['precio'] : null;
+        $resI = registrarEntradaInventario($conexion, $idMed, (int) ($_POST['cantidad'] ?? 0), (string) ($_POST['lote'] ?? ''), (string) ($_POST['vence'] ?? ''), $precio, (string) ($_POST['proveedor'] ?? ''));
+    } elseif ($_POST['accion'] === 'inv_ajuste') {
+        $resI = registrarAjusteInventario($conexion, $idMed, (int) ($_POST['cantidad'] ?? 0), (string) ($_POST['motivo'] ?? ''));
+    } else {
+        cambiarStockMinimo($conexion, $idMed, (int) ($_POST['minimo'] ?? 0));
+        $resI = ['ok' => true, 'msg' => 'Existencia mínima actualizada.'];
+    }
+    $mensaje = ($resI['ok'] ? '✅ ' : '❌ ') . $resI['msg'];
+    $pageRedirect = 'inventarioPage';
 }
 
 if (isset($_GET['entregar']) && isset($_GET['id'])) {
@@ -77,7 +95,10 @@ if (isset($_GET['page'])) {
 }
 
 $consultas = obtenerConsultasFarmacia($conexion);
-$medicamentos = obtenerMedicamentosCatalogo($conexion);
+$medicamentos = inventarioMedicamentos($conexion);
+$alertasInv = alertasInventario($conexion);
+$movimientos = movimientosRecientes($conexion);
+$filtroInv = $_GET['inv'] ?? '';
 $notificaciones = [];
 $resN = $conexion->query("SELECT * FROM notificaciones WHERE tipo_usuario IN ('farmaceuta','farmacia') ORDER BY fecha DESC LIMIT 15");
 if ($resN) {
@@ -138,6 +159,7 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
             <a href="#" data-page="diagnosticosPage"><i class="bi bi-file-medical"></i> Diagnósticos</a>
             <a href="#" data-page="facturasPage"><i class="bi bi-receipt"></i> Facturas</a>
             <a href="#" data-page="crearFacturaPage"><i class="bi bi-cart-plus"></i> Crear factura</a>
+            <a href="#" data-page="inventarioPage"><i class="bi bi-box-seam"></i> Inventario <?php $nAlert = $alertasInv['agotado'] + $alertasInv['bajo'] + $alertasInv['vencido']; if ($nAlert): ?><span class="badge bg-danger"><?php echo $nAlert; ?></span><?php endif; ?></a>
             <?php echo panelSidebarFooter(true); ?>
         </nav>
 
@@ -166,6 +188,9 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                 <div id="dashboardPage" class="page-section active">
                     <h2>Panel de Farmacia</h2>
                     <p class="text-muted">Recibe diagnósticos del médico, genera facturas y entrega medicamentos.</p>
+                    <?php if ($alertasInv['agotado'] + $alertasInv['bajo'] + $alertasInv['vencido'] + $alertasInv['por_vencer'] > 0): ?>
+                    <div class="alert alert-warning"><i class="bi bi-box-seam"></i> Inventario: <?php echo $alertasInv['agotado']; ?> agotado(s), <?php echo $alertasInv['bajo']; ?> bajo el mínimo, <?php echo $alertasInv['por_vencer']; ?> por vencer y <?php echo $alertasInv['vencido']; ?> vencido(s). <a href="?page=inventarioPage">Ver inventario</a></div>
+                    <?php endif; ?>
                     <div class="row g-3 mt-2">
                         <div class="col-md-3"><div class="card stat-card bg-primary text-white"><div class="card-body"><h6>Diagnósticos</h6><h2><?php echo count($consultas); ?></h2></div></div></div>
                         <div class="col-md-3"><div class="card stat-card bg-warning text-dark"><div class="card-body"><h6>Sin facturar</h6><h2><?php echo $pendientes; ?></h2></div></div></div>
@@ -247,6 +272,69 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                 </div>
 
                 <!-- Crear factura -->
+                <div id="inventarioPage" class="page-section">
+                    <h2><i class="bi bi-box-seam"></i> Inventario</h2>
+                    <p class="text-muted">Existencias, lotes y vencimientos. Al emitir una factura se descuenta automáticamente; no se despacha sin existencias ni con lotes vencidos.</p>
+                    <div class="d-flex flex-wrap gap-2 mb-3">
+                        <a class="btn btn-sm <?php echo $filtroInv === '' ? 'btn-primary' : 'btn-outline-primary'; ?>" href="?page=inventarioPage">Todos (<?php echo count($medicamentos); ?>)</a>
+                        <?php foreach (['agotado' => 'Agotados', 'bajo' => 'Bajo el mínimo', 'por_vencer' => 'Por vencer', 'vencido' => 'Vencidos'] as $k => $t): ?>
+                            <a class="btn btn-sm <?php echo $filtroInv === $k ? 'btn-primary' : 'btn-outline-primary'; ?>" href="?page=inventarioPage&amp;inv=<?php echo $k; ?>"><?php echo $t; ?> (<?php echo $alertasInv[$k]; ?>)</a>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-lg-8">
+                            <div class="card shadow-sm"><div class="table-responsive" style="max-height:640px">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead class="table-light" style="position:sticky;top:0"><tr><th>Medicamento</th><th class="text-end">Exist.</th><th>Mín.</th><th>Lote / vence</th><th class="text-end">Precio</th><th>Estado</th></tr></thead>
+                                    <tbody>
+                                    <?php foreach ($medicamentos as $m): $est = estadoInventario($m); if ($filtroInv !== '' && $est[0] !== $filtroInv) continue; ?>
+                                        <tr>
+                                            <td><?php echo htmlspecialchars($m['nombre']); ?></td>
+                                            <td class="text-end fw-semibold"><?php echo (int) $m['stock']; ?></td>
+                                            <td><form method="POST" class="d-flex gap-1"><input type="hidden" name="accion" value="inv_minimo"><input type="hidden" name="id_medicamento" value="<?php echo (int) $m['id_medicamento']; ?>"><input type="number" name="minimo" min="0" class="form-control form-control-sm px-1" style="width:54px" value="<?php echo (int) $m['stock_minimo']; ?>" aria-label="Existencia mínima"><button class="btn btn-sm btn-outline-secondary px-1" title="Guardar mínimo"><i class="bi bi-check"></i></button></form></td>
+                                            <td class="small"><?php echo htmlspecialchars($m['lote'] ?: '—'); ?><br><?php echo $m['fecha_vencimiento'] ? date('d/m/Y', strtotime($m['fecha_vencimiento'])) : '—'; ?></td>
+                                            <td class="text-end small">$<?php echo number_format((float) $m['precio'], 0, ',', '.'); ?></td>
+                                            <td><span class="badge bg-<?php echo $est[2]; ?><?php echo $est[2] === 'warning' ? ' text-dark' : ''; ?>"><?php echo $est[1]; ?></span></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div></div>
+                        </div>
+                        <div class="col-lg-4">
+                            <div class="card shadow-sm mb-3"><div class="card-body">
+                                <h6 class="fw-bold">Registrar entrada</h6>
+                                <form method="POST" class="row g-2">
+                                    <input type="hidden" name="accion" value="inv_entrada">
+                                    <div class="col-12"><select name="id_medicamento" class="form-select form-select-sm" required><option value="">Medicamento…</option><?php foreach ($medicamentos as $m): ?><option value="<?php echo (int) $m['id_medicamento']; ?>"><?php echo htmlspecialchars($m['nombre']); ?></option><?php endforeach; ?></select></div>
+                                    <div class="col-6"><input type="number" name="cantidad" min="1" class="form-control form-control-sm" placeholder="Cantidad" required></div>
+                                    <div class="col-6"><input type="text" name="lote" maxlength="40" class="form-control form-control-sm" placeholder="Lote" required></div>
+                                    <div class="col-6"><label class="form-label small mb-0">Vence</label><input type="date" name="vence" min="<?php echo date('Y-m-d', strtotime('+1 day')); ?>" class="form-control form-control-sm" required></div>
+                                    <div class="col-6"><label class="form-label small mb-0">Precio venta</label><input type="number" name="precio" min="0" step="50" class="form-control form-control-sm" placeholder="Igual"></div>
+                                    <div class="col-12"><input type="text" name="proveedor" maxlength="80" class="form-control form-control-sm" placeholder="Proveedor / factura de compra"></div>
+                                    <div class="col-12"><button class="btn btn-sm btn-success w-100">Registrar entrada</button></div>
+                                </form>
+                            </div></div>
+                            <div class="card shadow-sm mb-3"><div class="card-body">
+                                <h6 class="fw-bold">Ajuste (conteo, daño, vencimiento)</h6>
+                                <form method="POST" class="row g-2">
+                                    <input type="hidden" name="accion" value="inv_ajuste">
+                                    <div class="col-12"><select name="id_medicamento" class="form-select form-select-sm" required><option value="">Medicamento…</option><?php foreach ($medicamentos as $m): ?><option value="<?php echo (int) $m['id_medicamento']; ?>"><?php echo htmlspecialchars($m['nombre']); ?> (<?php echo (int) $m['stock']; ?>)</option><?php endforeach; ?></select></div>
+                                    <div class="col-5"><input type="number" name="cantidad" class="form-control form-control-sm" placeholder="+ / –" required></div>
+                                    <div class="col-7"><input type="text" name="motivo" maxlength="100" class="form-control form-control-sm" placeholder="Motivo" required minlength="5"></div>
+                                    <div class="col-12"><button class="btn btn-sm btn-outline-primary w-100">Registrar ajuste</button></div>
+                                </form>
+                            </div></div>
+                            <div class="card shadow-sm"><div class="card-header small fw-semibold">Últimos movimientos</div>
+                                <ul class="list-group list-group-flush small" style="max-height:260px;overflow:auto">
+                                    <?php foreach ($movimientos as $mv): ?><li class="list-group-item d-flex justify-content-between gap-2"><span><?php echo htmlspecialchars($mv['nombre']); ?> <span class="text-muted">· <?php echo htmlspecialchars($mv['referencia']); ?></span></span><span class="text-nowrap fw-semibold <?php echo $mv['cantidad'] < 0 ? 'text-danger' : 'text-success'; ?>"><?php echo $mv['cantidad'] > 0 ? '+' : ''; ?><?php echo (int) $mv['cantidad']; ?></span></li><?php endforeach; ?>
+                                    <?php if (!$movimientos): ?><li class="list-group-item text-muted">Sin movimientos todavía.</li><?php endif; ?>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div id="crearFacturaPage" class="page-section">
                     <h2><i class="bi bi-cart-plus"></i> Crear factura y dispensar medicamentos</h2>
                     <?php if (!$consultaForm): ?>
@@ -278,8 +366,9 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                                     <select class="form-select med-select" name="item_desc[]" required>
                                         <option value="">— Seleccione medicamento —</option>
                                         <?php foreach ($medicamentos as $m): ?>
-                                        <option value="<?php echo htmlspecialchars($m['nombre']); ?>" data-precio="<?php echo (float)$m['precio']; ?>">
-                                            <?php echo htmlspecialchars($m['nombre']); ?> — $<?php echo number_format((float)$m['precio'], 0, ',', '.'); ?>
+                                        <?php $estInv = estadoInventario($m); $sinStock = in_array($estInv[0], ['agotado', 'vencido'], true); ?>
+                                        <option value="<?php echo htmlspecialchars($m['nombre']); ?>" data-precio="<?php echo (float)$m['precio']; ?>"<?php echo $sinStock ? ' disabled' : ''; ?>>
+                                            <?php echo htmlspecialchars($m['nombre']); ?> — $<?php echo number_format((float)$m['precio'], 0, ',', '.'); ?> · <?php echo $sinStock ? $estInv[1] : 'quedan ' . (int) $m['stock']; ?>
                                         </option>
                                         <?php endforeach; ?>
                                     </select>

@@ -54,6 +54,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'respo
 
 asegurarEsquemaCitas($conexion);
 asegurarEsquemaClinico($conexion);
+require_once __DIR__ . '/../conexion/historia_clinica_servicio.php';
+asegurarEsquemaHistoriaComplementos($conexion);
+
+// ---------- Resultados de laboratorio e imágenes ----------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'cargar_resultado') {
+    $resR = cargarResultadoOrden($conexion, (int) ($_POST['id_orden'] ?? 0), (string) ($_POST['resultado_texto'] ?? ''), $_FILES['archivo'] ?? [], trim($_SESSION['nombre'] ?? 'Enfermería') . ' (Enfermería)');
+    $mensaje = ($resR['ok'] ? '✅ ' : '❌ ') . $resR['msg'];
+    $pageRedirect = 'resultadosPage';
+}
+$ordenesPendientes = $conexion->query("SELECT o.*, cc.fecha_firma, cc.firmado_por, cc.id_paciente_usuario, CONCAT(u.nombre, ' ', u.apellido) AS paciente, u.tipo_documento, u.documento
+    FROM orden_medica o INNER JOIN consulta_clinica cc ON cc.id_consulta = o.id_consulta
+    LEFT JOIN usuario u ON u.id_usuario = cc.id_paciente_usuario
+    WHERE o.tipo IN ('laboratorio', 'imagen') AND o.estado = 'pendiente'
+    ORDER BY cc.fecha_firma DESC LIMIT 100")->fetch_all(MYSQLI_ASSOC);
+$resultadosRecientes = $conexion->query("SELECT o.*, CONCAT(u.nombre, ' ', u.apellido) AS paciente
+    FROM orden_medica o INNER JOIN consulta_clinica cc ON cc.id_consulta = o.id_consulta
+    LEFT JOIN usuario u ON u.id_usuario = cc.id_paciente_usuario
+    WHERE o.estado = 'resultado' ORDER BY o.resultado_fecha DESC LIMIT 20")->fetch_all(MYSQLI_ASSOC);
+$filtroRes = trim((string) ($_GET['res_q'] ?? ''));
+if ($filtroRes !== '') {
+    $pageRedirect = 'resultadosPage';
+    $ordenesPendientes = array_values(array_filter($ordenesPendientes, fn($o) => stripos($o['paciente'] . ' ' . $o['documento'] . ' ' . $o['descripcion'], $filtroRes) !== false));
+}
 
 // ---------- Triaje: signos vitales y antecedentes del paciente en sala ----------
 $citaTriaje = null;
@@ -154,6 +177,7 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                 <a href="#" class="active" data-page="dashboardPage"><i class="bi bi-grid-1x2"></i> Resumen</a>
                 <a href="#" data-page="citasPage"><i class="bi bi-calendar-day"></i> Agenda del día</a>
                 <a href="#" data-page="triajePage"><i class="bi bi-heart-pulse"></i> Triaje</a>
+                <a href="#" data-page="resultadosPage"><i class="bi bi-clipboard2-data"></i> Resultados <?php if ($ordenesPendientes): ?><span class="badge bg-warning text-dark"><?php echo count($ordenesPendientes); ?></span><?php endif; ?></a>
                 <a href="#" data-page="contactosPage"><i class="bi bi-envelope"></i> Contactos</a>
             <?php echo panelSidebarFooter(true); ?>
             </nav>
@@ -271,6 +295,51 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                             </div>
                         </div>
                     </div>
+
+                <div id="resultadosPage" class="page-section">
+                    <div class="d-flex justify-content-between align-items-end flex-wrap gap-3 mb-3">
+                        <div>
+                            <h2 class="mb-1"><i class="bi bi-clipboard2-data"></i> Resultados de exámenes</h2>
+                            <p class="text-muted mb-0">Cargue el resultado de cada orden de laboratorio o imagen (texto, PDF o foto). El médico que la ordenó y el paciente reciben el aviso.</p>
+                        </div>
+                        <form method="GET" class="d-flex gap-2"><input type="hidden" name="page" value="resultadosPage">
+                            <input type="search" name="res_q" class="form-control" placeholder="Paciente, documento o examen" value="<?php echo htmlspecialchars($filtroRes); ?>"><button class="btn btn-outline-primary">Buscar</button></form>
+                    </div>
+                    <?php if (!$ordenesPendientes): ?><div class="card mb-3"><div class="panel-empty"><i class="bi bi-check2-circle"></i><p>No hay órdenes pendientes de resultado.</p></div></div><?php endif; ?>
+                    <div class="row g-3 mb-4">
+                        <?php foreach ($ordenesPendientes as $o): ?>
+                        <div class="col-lg-6">
+                            <div class="card h-100"><div class="card-body">
+                                <div class="d-flex justify-content-between gap-2">
+                                    <div><strong><?php echo htmlspecialchars($o['descripcion']); ?></strong><br><small class="text-muted"><?php echo htmlspecialchars(tiposOrden()[$o['tipo']] ?? $o['tipo']); ?> · orden #<?php echo (int) $o['id_orden']; ?></small></div>
+                                    <span class="badge bg-warning text-dark align-self-start">Pendiente</span>
+                                </div>
+                                <p class="small mt-2 mb-2"><?php echo htmlspecialchars($o['paciente'] ?? ''); ?> · <?php echo htmlspecialchars(trim(($o['tipo_documento'] ?? '') . ' ' . ($o['documento'] ?? ''))); ?><br>
+                                <span class="text-muted">Ordenado por <?php echo htmlspecialchars($o['firmado_por']); ?> el <?php echo date('d/m/Y', strtotime($o['fecha_firma'])); ?><?php echo $o['observacion'] ? ' · ' . htmlspecialchars($o['observacion']) : ''; ?></span></p>
+                                <form method="POST" enctype="multipart/form-data" class="row g-2">
+                                    <input type="hidden" name="accion" value="cargar_resultado">
+                                    <input type="hidden" name="id_orden" value="<?php echo (int) $o['id_orden']; ?>">
+                                    <div class="col-12"><textarea name="resultado_texto" class="form-control form-control-sm" rows="2" placeholder="Resultado o valores (opcional si adjunta el archivo)"></textarea></div>
+                                    <div class="col-sm-8"><input type="file" name="archivo" class="form-control form-control-sm" accept="application/pdf,image/jpeg,image/png"></div>
+                                    <div class="col-sm-4"><button class="btn btn-sm btn-success w-100">Cargar</button></div>
+                                </form>
+                            </div></div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php if ($resultadosRecientes): ?>
+                    <div class="card"><div class="card-header">Cargados recientemente</div>
+                        <div class="table-responsive"><table class="table table-sm mb-0 align-middle">
+                            <thead><tr><th>Fecha</th><th>Paciente</th><th>Examen</th><th>Revisado por el médico</th><th></th></tr></thead><tbody>
+                            <?php foreach ($resultadosRecientes as $r): ?>
+                                <tr><td class="small"><?php echo date('d/m g:i a', strtotime($r['resultado_fecha'])); ?></td><td class="small"><?php echo htmlspecialchars($r['paciente'] ?? ''); ?></td><td class="small"><?php echo htmlspecialchars($r['descripcion']); ?></td>
+                                <td class="small"><?php echo $r['fecha_revision'] ? 'Sí · ' . htmlspecialchars($r['revisado_por']) : 'Pendiente'; ?></td>
+                                <td><?php if ($r['resultado_archivo']): ?><a href="ver_resultado.php?id=<?php echo (int) $r['id_orden']; ?>" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">Archivo</a><?php endif; ?></td></tr>
+                            <?php endforeach; ?>
+                        </tbody></table></div>
+                    </div>
+                    <?php endif; ?>
+                </div>
 
                 <div id="triajePage" class="page-section">
                     <?php if ($citaTriaje && $fichaTriaje): ?>

@@ -17,6 +17,18 @@ return [
         'timezone' => 'America/Bogota',
         // Minutos sin actividad para cerrar la sesión de los paneles
         'minutos_inactividad' => 30,
+        // true en el servidor real (con certificado SSL): obliga a usar https://
+        'forzar_https' => false,
+    ],
+
+    // Copias de seguridad (tareas/respaldo.php)
+    'respaldo' => [
+        // Ruta de mysqldump (en XAMPP para Windows viene en mysql/bin)
+        'mysqldump' => 'C:/xampp/mysql/bin/mysqldump.exe',
+        // Carpeta de destino (fuera de la carpeta pública si es posible)
+        'carpeta'   => __DIR__ . '/../respaldos',
+        // Cuántos respaldos diarios conservar
+        'conservar' => 14,
     ],
 
     'db' => [

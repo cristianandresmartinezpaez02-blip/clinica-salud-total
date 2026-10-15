@@ -15,6 +15,7 @@ require_once __DIR__ . '/notificaciones_servicio.php';
 require_once __DIR__ . '/disponibilidad_cita.php';
 require_once __DIR__ . '/clinica_servicio.php';
 require_once __DIR__ . '/agenda_medica_servicio.php';
+require_once __DIR__ . '/caja_servicio.php';
 
 function estadosCita(): array
 {
@@ -106,6 +107,9 @@ function cambiarEstadoCita(mysqli $conexion, int $idCita, string $nuevo): array
     $actual = $cita['estado'] ?: 'pendiente';
     if (!in_array($nuevo, transicionesCita()[$actual] ?? [], true)) {
         return ['ok' => false, 'msg' => 'No se puede pasar una cita de "' . (estadosCita()[$actual][0] ?? $actual) . '" a "' . (estadosCita()[$nuevo][0] ?? $nuevo) . '".'];
+    }
+    if ($nuevo === 'en_sala' && $actual === 'confirmada' && !pagoDeCita($conexion, $idCita)) {
+        return ['ok' => false, 'msg' => 'Registre el pago de la consulta antes de pasar al paciente a sala.'];
     }
     if ($nuevo === 'en_sala') {
         $stmt = $conexion->prepare("UPDATE cita SET estado = 'en_sala', fecha_llegada = NOW() WHERE id_cita = ?");

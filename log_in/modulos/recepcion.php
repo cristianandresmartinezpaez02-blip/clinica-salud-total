@@ -78,6 +78,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         volver('reprogramarPage', '❌ ' . $res['msg'], ['reprogramar' => $idCita]);
     }
 
+    if ($accion === 'llegada_pago') {
+        $res = registrarLlegadaConPago($conexion, $idCita, (string) ($_POST['medio'] ?? ''), (string) ($_POST['referencia'] ?? ''), $nombreRecepcion . ' (Recepción)');
+        volver('dashboardPage', ($res['ok'] ? '✅ ' : '❌ ') . $res['msg'], array_filter(['fecha' => $_POST['fecha'] ?? null]));
+    }
+
+    if ($accion === 'cerrar_propuesta') {
+        $res = cerrarPropuestaCita($conexion, $idCita);
+        volver('porReprogramarPage', ($res['ok'] ? '✅ ' : '❌ ') . $res['msg']);
+    }
+
     if ($accion === 'confirmar_cita') {
         $res = confirmarCita($conexion, $idCita, (int) ($_POST['id_medico'] ?? 0), trim($_POST['consultorio'] ?? ''));
         volver('solicitudesPage', ($res['ok'] ? '✅ ' : '❌ ') . $res['msg']);
@@ -172,6 +182,7 @@ if (!DateTime::createFromFormat('Y-m-d', $fechaAgenda)) {
     $fechaAgenda = $hoy;
 }
 $agenda = agendaDelDia($conexion, $fechaAgenda);
+$pagosAgenda = pagosDeCitas($conexion, array_column($agenda, 'id_cita'));
 $solicitudes = $conexion->query("SELECT * FROM cita WHERE estado = 'pendiente' ORDER BY fecha, hora")->fetch_all(MYSQLI_ASSOC);
 $agendaHoy = $fechaAgenda === $hoy ? $agenda : agendaDelDia($conexion, $hoy);
 $cuenta = fn(string $estado) => count(array_filter($agendaHoy, fn($c) => ($c['estado'] ?? '') === $estado));
@@ -233,6 +244,9 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
     .acciones-cita { display: flex; gap: .35rem; flex-wrap: wrap; justify-content: flex-end; }
     .acciones-cita form { margin: 0; }
     .fila-en-sala td { background: #ecfbf7 !important; }
+    .form-cobro { display: flex; gap: .3rem; flex-wrap: wrap; justify-content: flex-end; max-width: 430px; }
+    .form-cobro select { width: auto; }
+    .form-cobro input { width: 130px; }
   </style>
   <?php echo panelHead(); ?>
 </head>
@@ -325,7 +339,19 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                               if ($sig === 'confirmada' && $est === 'pendiente') continue; // se confirma asignando médico en "Solicitudes"
                               [$texto, $clase] = $etiquetas[$sig];
                               if ($sig === 'confirmada' && $est === 'en_sala') { $texto = 'Deshacer llegada'; }
-                            ?>
+                              if ($sig === 'en_sala' && empty($pagosAgenda[(int) $c['id_cita']])):
+                                $tarifa = tarifaEspecialidad($conexion, (string) $c['servicio']); ?>
+                              <form method="POST" class="form-cobro">
+                                <input type="hidden" name="accion" value="llegada_pago">
+                                <input type="hidden" name="id_cita" value="<?php echo (int) $c['id_cita']; ?>">
+                                <input type="hidden" name="fecha" value="<?php echo e($fechaAgenda); ?>">
+                                <select name="medio" class="form-select form-select-sm" aria-label="Medio de pago" required>
+                                  <?php foreach (mediosPago() as $k => $t): ?><option value="<?php echo $k; ?>"><?php echo e($t); ?></option><?php endforeach; ?>
+                                </select>
+                                <input type="text" name="referencia" class="form-control form-control-sm" maxlength="60" placeholder="Ref. / aprobación" aria-label="Referencia del pago">
+                                <button class="btn btn-sm btn-success text-nowrap" title="Cobra la consulta y pasa al paciente a sala"><i class="bi bi-cash-coin"></i> Cobrar <?php echo e(formatoPesos($tarifa)); ?> · Llegó</button>
+                              </form>
+                            <?php continue; endif; ?>
                               <form method="POST" <?php echo $sig === 'cancelada' ? 'onsubmit="return confirm(\'¿Cancelar esta cita?\')"' : ''; ?>>
                                 <input type="hidden" name="accion" value="estado_cita">
                                 <input type="hidden" name="id_cita" value="<?php echo (int) $c['id_cita']; ?>">
@@ -334,6 +360,7 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                                 <button class="btn btn-sm <?php echo $clase; ?>"><?php echo $texto; ?></button>
                               </form>
                             <?php endforeach; ?>
+                            <?php if (!empty($pagosAgenda[(int) $c['id_cita']])): ?><a href="documento.php?tipo=recibo&amp;id=<?php echo (int) $pagosAgenda[(int) $c['id_cita']]['id_pago']; ?>" target="_blank" rel="noopener" class="btn btn-sm btn-outline-success" title="Recibo de pago"><i class="bi bi-receipt"></i></a><?php endif; ?>
                             <?php if (in_array($est, ['pendiente', 'confirmada'], true)): ?><a href="?reprogramar=<?php echo (int) $c['id_cita']; ?>" class="btn btn-sm btn-outline-primary" title="Cambiar día, hora o médico"><i class="bi bi-arrow-repeat"></i></a><?php endif; ?>
                             <?php if ($est === 'pendiente'): ?><a href="#" class="btn btn-sm btn-warning" onclick="showPage('solicitudesPage'); return false;">Por confirmar</a><?php endif; ?>
                           </div>
@@ -384,7 +411,12 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                         <?php echo etiquetaPropuesta($c['propuesta_estado'] ?? null); ?>
                         <?php if (($c['propuesta_estado'] ?? '') !== '' && !empty($c['propuesta_fecha'])): ?><br><small class="text-muted">Propuesto: <?php echo e(textoTurno($c['propuesta_fecha'], $c['propuesta_hora'])); ?><?php if (!empty($c['propuesta_fecha_envio'])): ?> · enviado <?php echo date('d/m g:i a', strtotime($c['propuesta_fecha_envio'])); ?><?php endif; ?></small><?php endif; ?>
                       </td>
-                      <td class="text-end"><a class="btn btn-sm <?php echo ($c['propuesta_estado'] ?? '') === 'pendiente' ? 'btn-outline-primary' : 'btn-primary'; ?>" href="?reprogramar=<?php echo (int) $c['id_cita']; ?>"><?php echo ($c['propuesta_estado'] ?? '') === 'pendiente' ? 'Cambiar propuesta' : 'Proponer horario'; ?></a></td>
+                      <td class="text-end">
+                        <a class="btn btn-sm <?php echo ($c['propuesta_estado'] ?? '') === 'pendiente' ? 'btn-outline-primary' : 'btn-primary'; ?>" href="?reprogramar=<?php echo (int) $c['id_cita']; ?>"><?php echo ($c['propuesta_estado'] ?? '') === 'pendiente' ? 'Cambiar propuesta' : 'Proponer horario'; ?></a>
+                        <?php if (empty($c['requiere_reprogramacion']) && in_array($c['propuesta_estado'] ?? '', ['rechazada', 'vencida', 'anulada'], true)): ?>
+                          <form method="POST" class="d-inline"><input type="hidden" name="accion" value="cerrar_propuesta"><input type="hidden" name="id_cita" value="<?php echo (int) $c['id_cita']; ?>"><button class="btn btn-sm btn-outline-secondary mt-1" title="El paciente conserva su horario actual">Mantener horario</button></form>
+                        <?php endif; ?>
+                      </td>
                     </tr>
                   <?php endforeach; ?>
                   </tbody>

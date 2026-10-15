@@ -20,6 +20,7 @@ require_once "../conexion/notificaciones_servicio.php";
 require_once "../conexion/auth_servicio.php";
 require_once "../conexion/citas_servicio.php";
 require_once "../conexion/clinica_servicio.php";
+require_once "../conexion/dos_pasos_servicio.php";
 require_once __DIR__ . '/../includes/reportes_admin.php'; // estados de cita, médicos y catálogo de especialidades
 
 asegurarEsquemaAuth($conexion);
@@ -61,6 +62,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'revis
     $mensaje = ($resPerm['ok'] ? '✅ ' : '❌ ') . $resPerm['msg'];
     $pageRedirect = 'permisosPage';
 }
+// Caja: tarifas y anulación de pagos; horario de los médicos
+$nombreAdmin = trim(($_SESSION['nombre'] ?? 'Administrador') . ' (Administración)');
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'guardar_tarifa') {
+    $resT = guardarTarifa($conexion, (string) ($_POST['especialidad'] ?? ''), (int) preg_replace('/\D/', '', (string) ($_POST['valor'] ?? '')), $nombreAdmin);
+    $mensaje = ($resT['ok'] ? '✅ ' : '❌ ') . $resT['msg'];
+    $pageRedirect = 'cajaPage';
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'anular_pago') {
+    $resT = anularPago($conexion, (int) ($_POST['id_pago'] ?? 0), (string) ($_POST['motivo'] ?? ''), $nombreAdmin);
+    $mensaje = ($resT['ok'] ? '✅ ' : '❌ ') . $resT['msg'];
+    $pageRedirect = 'cajaPage';
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'guardar_horario') {
+    $resT = guardarHorarioMedico($conexion, (int) ($_POST['id_medico'] ?? 0), (array) ($_POST['dia'] ?? []), !empty($_POST['completo']));
+    $mensaje = ($resT['ok'] ? '✅ ' : '❌ ') . $resT['msg'];
+    $pageRedirect = 'permisosPage';
+    $_GET['horario'] = (int) ($_POST['id_medico'] ?? 0);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'registrar_novedad') {
     $nombreRevisor = trim(($_SESSION['nombre'] ?? 'Administrador') . ' (Coordinación)');
     $resPerm = solicitarPermiso($conexion, (int) ($_POST['id_medico'] ?? 0), $_POST, true, $nombreRevisor);
@@ -312,6 +332,21 @@ foreach ($citas as &$citaAdmin) {
 }
 unset($citaAdmin);
 $contactos = obtenerContactos($conexion);
+$cajaDesde = DateTime::createFromFormat('Y-m-d', $_GET['caja_desde'] ?? '') ? $_GET['caja_desde'] : date('Y-m-01');
+$cajaHasta = DateTime::createFromFormat('Y-m-d', $_GET['caja_hasta'] ?? '') ? $_GET['caja_hasta'] : date('Y-m-d');
+if (isset($_GET['caja_desde'])) {
+    $pageRedirect = 'cajaPage';
+}
+$caja = resumenCaja($conexion, $cajaDesde, $cajaHasta);
+$cajaHoy = resumenCaja($conexion, date('Y-m-d'), date('Y-m-d'));
+$tarifas = tarifasConsulta($conexion);
+$medicoHorario = isset($_GET['horario']) ? (int) $_GET['horario'] : 0;
+if ($medicoHorario) {
+    $pageRedirect = 'permisosPage';
+}
+$dosPasosAdmin = !empty(estadoDosPasos($conexion, (int) $_SESSION['id_usuario'])['totp_activo']);
+$archivoRespaldo = rtrim((string) config('respaldo.carpeta', __DIR__ . '/../../respaldos'), '/\\') . '/ultimo_respaldo.txt';
+$ultimoRespaldo = is_file($archivoRespaldo) ? trim((string) file_get_contents($archivoRespaldo)) : null;
 $permisosPorRevisar = listarPermisos($conexion, ['estado' => 'pendiente']);
 $permisosHistorial = array_values(array_filter(listarPermisos($conexion, [], 40), fn($p) => $p['estado'] !== 'pendiente'));
 $notificaciones = tableExists($conexion, 'notificaciones')
@@ -401,7 +436,8 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
         <a href="#" data-page="pacientesPage"><i class="bi bi-person-heart"></i> Pacientes</a>
         <a href="#" data-page="medicosPage"><i class="bi bi-heart-pulse"></i> Médicos</a>
         <a href="#" data-page="citasPage"><i class="bi bi-calendar-check"></i> Citas médicas</a>
-        <a href="#" data-page="permisosPage"><i class="bi bi-calendar-x"></i> Permisos médicos <?php if ($permisosPorRevisar): ?><span class="badge bg-warning text-dark"><?php echo count($permisosPorRevisar); ?></span><?php endif; ?></a>
+        <a href="#" data-page="permisosPage"><i class="bi bi-calendar-x"></i> Permisos y horarios <?php if ($permisosPorRevisar): ?><span class="badge bg-warning text-dark"><?php echo count($permisosPorRevisar); ?></span><?php endif; ?></a>
+        <a href="#" data-page="cajaPage"><i class="bi bi-cash-coin"></i> Caja y tarifas</a>
         <a href="#" data-page="contactosPage"><i class="bi bi-envelope"></i> Mensajes</a>
         <a href="#" data-page="reportesPage"><i class="bi bi-graph-up"></i> Reportes</a>
         <a href="#" data-page="auditoriaPage"><i class="bi bi-shield-lock"></i> Auditoría</a>
@@ -469,6 +505,17 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
             <div class="panel-page-head">
               <h2>Hola, <?php echo htmlspecialchars($_SESSION['nombre'] ?? ''); ?></h2>
               <p class="text-muted text-capitalize-first">Resumen de la clínica · <?php echo $fechaHoy; ?></p>
+            </div>
+
+            <?php if (!$dosPasosAdmin): ?>
+              <div class="alert alert-warning d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <span><i class="bi bi-shield-exclamation me-1"></i> Proteja la cuenta de administración: active la <strong>verificación en dos pasos</strong>.</span>
+                <a href="#" class="btn btn-sm btn-warning" onclick="showPage('configPage'); return false;">Activar ahora</a>
+              </div>
+            <?php endif; ?>
+            <div class="d-flex flex-wrap gap-3 mb-3 small text-muted">
+              <span><i class="bi bi-cash-coin"></i> Caja hoy: <strong><?php echo formatoPesos($cajaHoy['total']); ?></strong></span>
+              <span><i class="bi bi-hdd"></i> Último respaldo: <strong><?php echo $ultimoRespaldo ? date('d/m/Y g:i a', strtotime($ultimoRespaldo)) : 'ninguno (programe tareas/respaldo.php)'; ?></strong></span>
             </div>
 
             <h6 class="panel-subtitle">Requiere su atención</h6>
@@ -1060,6 +1107,42 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
               <?php endforeach; ?>
             </div>
 
+            <div class="card mb-4">
+              <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <span><i class="bi bi-clock me-1"></i> Horario de los médicos</span>
+                <form method="GET" class="d-flex gap-2"><input type="hidden" name="page" value="permisosPage">
+                  <select name="horario" class="form-select form-select-sm" onchange="this.form.submit()"><option value="">Elija un médico…</option>
+                    <?php foreach (obtenerMedicos($conexion) as $m): ?><option value="<?php echo (int) $m['id_usuario']; ?>"<?php echo $medicoHorario === (int) $m['id_usuario'] ? ' selected' : ''; ?>><?php echo htmlspecialchars($m['nombre'] . ($m['especialidad'] ? ' — ' . $m['especialidad'] : '')); ?></option><?php endforeach; ?>
+                  </select></form>
+              </div>
+              <div class="card-body">
+                <?php if ($medicoHorario && nombreMedico($conexion, $medicoHorario) !== ''): $hm = horarioMedico($conexion, $medicoHorario); ?>
+                  <p class="small text-muted">Actual: <?php echo htmlspecialchars(textoHorarioMedico($conexion, $medicoHorario)); ?>. Si deja un día sin marcar, el médico no atiende ese día. Las citas que queden por fuera pasan a Recepción para reprogramar.</p>
+                  <form method="POST">
+                    <input type="hidden" name="accion" value="guardar_horario">
+                    <input type="hidden" name="id_medico" value="<?php echo $medicoHorario; ?>">
+                    <div class="table-responsive"><table class="table table-sm align-middle mb-2">
+                      <thead><tr><th>Día</th><th>Atiende</th><th>Desde</th><th>Hasta</th></tr></thead><tbody>
+                      <?php foreach (nombresDiasSemana() as $d => $nomDia): [$abre, $cierra] = horarioClinicaDia($d); $sel = $hm[$d] ?? ($hm ? null : [$abre, $cierra]); ?>
+                        <tr>
+                          <td><?php echo $nomDia; ?></td>
+                          <td><input class="form-check-input" type="checkbox" name="dia[<?php echo $d; ?>][trabaja]" value="1"<?php echo $sel ? ' checked' : ''; ?>></td>
+                          <td><input type="time" step="1800" min="<?php echo $abre; ?>" max="<?php echo $cierra; ?>" name="dia[<?php echo $d; ?>][inicio]" class="form-control form-control-sm" value="<?php echo $sel[0] ?? $abre; ?>"></td>
+                          <td><input type="time" step="1800" min="<?php echo $abre; ?>" max="<?php echo $cierra; ?>" name="dia[<?php echo $d; ?>][fin]" class="form-control form-control-sm" value="<?php echo $sel[1] ?? $cierra; ?>"></td>
+                        </tr>
+                      <?php endforeach; ?>
+                    </tbody></table></div>
+                    <div class="d-flex flex-wrap gap-2">
+                      <button class="btn btn-sm btn-primary">Guardar horario</button>
+                      <button class="btn btn-sm btn-outline-secondary" name="completo" value="1">Volver al horario completo de la clínica</button>
+                    </div>
+                  </form>
+                <?php else: ?>
+                  <p class="text-muted small mb-0">Sin horario propio, el médico atiende todo el horario de la clínica (lunes a viernes 7:00 a.m. – 6:00 p.m., sábados 8:00 a.m. – 1:00 p.m.).</p>
+                <?php endif; ?>
+              </div>
+            </div>
+
             <div class="row g-3">
               <div class="col-lg-5">
                 <div class="card">
@@ -1110,6 +1193,69 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                       <?php if (!$permisosHistorial): ?><tr><td colspan="5" class="text-center text-muted py-3">Sin registros.</td></tr><?php endif; ?>
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="cajaPage" class="page-section">
+            <div class="panel-page-head">
+              <h2><i class="bi bi-cash-coin"></i> Caja y tarifas</h2>
+              <p>Recepción cobra la consulta al registrar la llegada del paciente. Aquí ve lo recaudado, anula pagos con motivo y define la tarifa de cada especialidad.</p>
+            </div>
+            <form method="GET" class="d-flex flex-wrap gap-2 align-items-end mb-3">
+              <input type="hidden" name="page" value="cajaPage">
+              <div><label class="form-label small mb-0">Desde</label><input type="date" name="caja_desde" class="form-control form-control-sm" value="<?php echo e($cajaDesde); ?>"></div>
+              <div><label class="form-label small mb-0">Hasta</label><input type="date" name="caja_hasta" class="form-control form-control-sm" value="<?php echo e($cajaHasta); ?>"></div>
+              <button class="btn btn-sm btn-primary">Ver</button>
+            </form>
+            <div class="row g-3 mb-3">
+              <div class="col-md-4"><div class="card"><div class="card-body"><div class="text-muted small">Recaudado en el periodo</div><div class="fs-3 fw-bold"><?php echo formatoPesos($caja['total']); ?></div></div></div></div>
+              <div class="col-md-8"><div class="card h-100"><div class="card-body d-flex flex-wrap gap-4">
+                <?php foreach ($caja['por_medio'] as $medio => $valor): ?><div><div class="text-muted small"><?php echo e(mediosPago()[$medio]); ?></div><strong><?php echo formatoPesos($valor); ?></strong></div><?php endforeach; ?>
+              </div></div></div>
+            </div>
+            <div class="row g-3">
+              <div class="col-lg-8">
+                <div class="card">
+                  <div class="card-header">Pagos (<?php echo count($caja['pagos']); ?>)</div>
+                  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>Recibo</th><th>Fecha</th><th>Paciente</th><th>Medio</th><th class="text-end">Valor</th><th></th></tr></thead>
+                    <tbody>
+                    <?php foreach ($caja['pagos'] as $p): ?>
+                      <tr<?php echo $p['estado'] !== 'pagado' ? ' class="text-muted text-decoration-line-through"' : ''; ?>>
+                        <td><a href="documento.php?tipo=recibo&amp;id=<?php echo (int) $p['id_pago']; ?>" target="_blank" rel="noopener">#<?php echo (int) $p['id_pago']; ?></a></td>
+                        <td class="small"><?php echo date('d/m g:i a', strtotime($p['fecha'])); ?></td>
+                        <td class="small"><?php echo e($p['nombre']); ?><br><span class="text-muted"><?php echo e($p['servicio']); ?></span></td>
+                        <td class="small"><?php echo e(mediosPago()[$p['medio']] ?? $p['medio']); ?></td>
+                        <td class="text-end"><?php echo formatoPesos((int) $p['valor']); ?></td>
+                        <td class="text-end">
+                          <?php if ($p['estado'] === 'pagado'): ?>
+                            <details><summary class="small text-danger">Anular</summary>
+                              <form method="POST" class="d-flex gap-1 mt-1"><input type="hidden" name="accion" value="anular_pago"><input type="hidden" name="id_pago" value="<?php echo (int) $p['id_pago']; ?>"><input type="text" name="motivo" class="form-control form-control-sm" placeholder="Motivo" required minlength="5"><button class="btn btn-sm btn-outline-danger">OK</button></form>
+                            </details>
+                          <?php else: ?><span class="badge bg-secondary" title="<?php echo e($p['motivo_anulacion']); ?>">Anulado</span><?php endif; ?>
+                        </td>
+                      </tr>
+                    <?php endforeach; ?>
+                    <?php if (!$caja['pagos']): ?><tr><td colspan="6" class="text-center text-muted py-3">Sin pagos en el periodo.</td></tr><?php endif; ?>
+                    </tbody>
+                  </table></div>
+                </div>
+              </div>
+              <div class="col-lg-4">
+                <div class="card">
+                  <div class="card-header">Tarifas de consulta</div>
+                  <div class="card-body">
+                    <form method="POST" class="row g-2 mb-3">
+                      <input type="hidden" name="accion" value="guardar_tarifa">
+                      <div class="col-12"><select name="especialidad" class="form-select form-select-sm" required><?php foreach ($tarifas as $esp => $v): ?><option><?php echo e($esp); ?></option><?php endforeach; ?></select></div>
+                      <div class="col-8"><input type="number" name="valor" class="form-control form-control-sm" min="1000" max="5000000" step="500" placeholder="Valor en pesos" required></div>
+                      <div class="col-4"><button class="btn btn-sm btn-primary w-100">Guardar</button></div>
+                    </form>
+                    <div style="max-height:420px;overflow:auto"><table class="table table-sm mb-0">
+                      <?php foreach ($tarifas as $esp => $v): ?><tr><td class="small"><?php echo e($esp); ?></td><td class="text-end small"><?php echo formatoPesos($v); ?></td></tr><?php endforeach; ?>
+                    </table></div>
                   </div>
                 </div>
               </div>

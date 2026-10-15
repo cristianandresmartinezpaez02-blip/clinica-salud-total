@@ -46,8 +46,9 @@ function panelSeccionesPerfil(array $usuario, string $rolLabel, array $prefs): s
         . '<div class="panel-page-head"><h2><i class="bi bi-person-circle"></i> Mi perfil</h2><p>Actualice sus datos de contacto y su contraseña.</p></div>'
         . renderBloquePerfil($usuario, $rolLabel) . '</div>'
         . '<div id="configPage" class="page-section">'
-        . '<div class="panel-page-head"><h2><i class="bi bi-gear"></i> Configuración</h2><p>Personalice la apariencia de su panel.</p></div>'
-        . renderBloqueConfig($prefs) . '</div>';
+        . '<div class="panel-page-head"><h2><i class="bi bi-gear"></i> Configuración</h2><p>Apariencia del panel y seguridad de su cuenta.</p></div>'
+        . renderBloqueConfig($prefs)
+        . (function_exists('renderBloqueDosPasos') ? renderBloqueDosPasos(db(), (int) ($_SESSION['id_usuario'] ?? 0)) : '') . '</div>';
 }
 
 /** Script del menú móvil. Se imprime antes de </body>. */

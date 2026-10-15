@@ -374,6 +374,7 @@ function moverCita(mysqli $conexion, array $cita, string $fecha, string $hora, ?
 function responderPropuestaCita(mysqli $conexion, int $idCita, int $idUsuario, bool $acepta): array
 {
     asegurarEsquemaAgenda($conexion);
+    vencerPropuestas($conexion);
     $cita = obtenerCita($conexion, $idCita);
     if (!$cita || (int) $cita['id_usuario'] !== $idUsuario || ($cita['propuesta_estado'] ?? '') !== 'pendiente'
         || !in_array($cita['estado'], ['pendiente', 'confirmada'], true)) {
@@ -464,6 +465,7 @@ function avisarCambioCita(mysqli $conexion, array $cita, string $nuevo, ?int $id
 function citasPorReprogramar(mysqli $conexion): array
 {
     asegurarEsquemaAgenda($conexion);
+    vencerPropuestas($conexion);
     $res = $conexion->query("SELECT * FROM cita
         WHERE estado IN ('pendiente', 'confirmada')
           AND (requiere_reprogramacion = 1 OR propuesta_estado IN ('pendiente', 'rechazada', 'vencida', 'anulada'))
@@ -477,9 +479,145 @@ function etiquetaPropuesta(?string $estado): string
     return match ($estado) {
         'pendiente' => '<span class="badge bg-info text-dark">Esperando respuesta del paciente</span>',
         'rechazada' => '<span class="badge bg-danger">El paciente rechazó la propuesta</span>',
-        'vencida'   => '<span class="badge bg-secondary">La propuesta ya no era válida</span>',
+        'vencida'   => '<span class="badge bg-secondary">Venció sin respuesta del paciente</span>',
         'anulada'   => '<span class="badge bg-secondary">Propuesta anulada por permiso del médico</span>',
+        'cerrada'   => '<span class="badge bg-light text-dark">Se mantuvo el horario</span>',
         'aceptada'  => '<span class="badge bg-success">Aceptada</span>',
         default     => '',
     };
+}
+
+/* ============================== VENCIMIENTO DE PROPUESTAS ============================== */
+
+/**
+ * Las propuestas sin respuesta en HORAS_VENCE_PROPUESTA horas (o cuyo turno ya pasó) vencen:
+ * el turno apartado se libera y Recepción recibe el aviso para llamar al paciente.
+ */
+function vencerPropuestas(mysqli $conexion): int
+{
+    static $hecho = false;
+    if ($hecho) {
+        return 0;
+    }
+    $hecho = true;
+    asegurarEsquemaAgenda($conexion);
+    $res = $conexion->query("SELECT id_cita, nombre, telefono FROM cita WHERE propuesta_estado = 'pendiente'
+        AND (propuesta_fecha_envio < NOW() - INTERVAL " . HORAS_VENCE_PROPUESTA . " HOUR OR TIMESTAMP(propuesta_fecha, propuesta_hora) <= NOW())");
+    $vencidas = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
+    foreach ($vencidas as $c) {
+        $conexion->query("UPDATE cita SET propuesta_estado = 'vencida' WHERE propuesta_estado = 'pendiente' AND id_cita = " . (int) $c['id_cita']);
+        insertarNotificacionRol($conexion, 'recepcion', "⏱️ {$c['nombre']} no respondió en " . HORAS_VENCE_PROPUESTA . " horas la propuesta de la cita #{$c['id_cita']}. El turno se liberó; llámelo al {$c['telefono']}.", 'cita_reprogramar');
+    }
+    return count($vencidas);
+}
+
+/** Recepción da por gestionada una propuesta rechazada, vencida o anulada (la cita sigue igual). */
+function cerrarPropuestaCita(mysqli $conexion, int $idCita): array
+{
+    $cita = obtenerCita($conexion, $idCita);
+    if (!$cita || !in_array($cita['propuesta_estado'] ?? '', ['rechazada', 'vencida', 'anulada'], true)) {
+        return ['ok' => false, 'msg' => 'Esa cita no tiene una propuesta por cerrar.'];
+    }
+    if (!empty($cita['requiere_reprogramacion'])) {
+        return ['ok' => false, 'msg' => 'Esta cita debe moverse por una novedad del médico: proponga otro horario o cancélela.'];
+    }
+    $conexion->query("UPDATE cita SET propuesta_estado = 'cerrada' WHERE id_cita = " . $idCita);
+    registrarAuditoria($conexion, 'cita_propuesta', "Cita #{$idCita} ({$cita['nombre']}): se mantiene el horario actual (gestionado por Recepción)", 'cita', $idCita);
+    return ['ok' => true, 'msg' => 'Listo. La cita se mantiene en su horario.'];
+}
+
+/* ============================== HORARIO DEL MÉDICO ============================== */
+
+function nombresDiasSemana(): array
+{
+    return [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves', 5 => 'Viernes', 6 => 'Sábado'];
+}
+
+/** Horario de la clínica para un día de la semana (1-6). */
+function horarioClinicaDia(int $dia): array
+{
+    return $dia === 6 ? ['08:00', '13:00'] : ['07:00', '18:00'];
+}
+
+/** Texto del horario: "Lun 7:00 am–1:00 pm · Mar …" o "Horario completo de la clínica". */
+function textoHorarioMedico(mysqli $conexion, int $idMedico): string
+{
+    $h = horarioMedico($conexion, $idMedico);
+    if (!$h) {
+        return 'Horario completo de la clínica';
+    }
+    $partes = [];
+    foreach (nombresDiasSemana() as $d => $nombre) {
+        if (isset($h[$d])) {
+            $partes[] = mb_substr($nombre, 0, 3) . ' ' . date('g:i a', strtotime($h[$d][0])) . '–' . date('g:i a', strtotime($h[$d][1]));
+        }
+    }
+    return implode(' · ', $partes);
+}
+
+/**
+ * Guarda el horario semanal. $dias[d] = ['trabaja' => '1', 'inicio' => 'H:i', 'fin' => 'H:i'].
+ * Con $completo el médico vuelve al horario completo de la clínica.
+ * Las citas futuras que queden por fuera pasan a "por reprogramar".
+ */
+function guardarHorarioMedico(mysqli $conexion, int $idMedico, array $dias, bool $completo = false): array
+{
+    asegurarEsquemaAgenda($conexion);
+    $nombre = nombreMedico($conexion, $idMedico);
+    if ($nombre === '') {
+        return ['ok' => false, 'msg' => 'Seleccione un médico válido.'];
+    }
+    $filas = [];
+    if (!$completo) {
+        foreach (nombresDiasSemana() as $d => $etq) {
+            if (empty($dias[$d]['trabaja'])) {
+                continue;
+            }
+            $ini = (string) ($dias[$d]['inicio'] ?? '');
+            $fin = (string) ($dias[$d]['fin'] ?? '');
+            [$abre, $cierra] = horarioClinicaDia($d);
+            if (!preg_match('/^\d{2}:(00|30)$/', $ini) || !preg_match('/^\d{2}:(00|30)$/', $fin) || $ini >= $fin || $ini < $abre || $fin > $cierra) {
+                return ['ok' => false, 'msg' => "{$etq}: use horas en punto o y media dentro del horario de la clínica (" . date('g:i a', strtotime($abre)) . ' – ' . date('g:i a', strtotime($cierra)) . ').'];
+            }
+            $filas[$d] = [$ini, $fin];
+        }
+        if (!$filas) {
+            return ['ok' => false, 'msg' => 'Marque al menos un día de trabajo (para retirar al médico de la agenda, desactive su cuenta).'];
+        }
+    }
+    $conexion->begin_transaction();
+    $conexion->query('DELETE FROM horario_medico WHERE id_medico_usuario = ' . $idMedico);
+    $ins = $conexion->prepare('INSERT INTO horario_medico (id_medico_usuario, dia, hora_inicio, hora_fin) VALUES (?, ?, ?, ?)');
+    foreach ($filas as $d => [$ini, $fin]) {
+        $ins->bind_param('iiss', $idMedico, $d, $ini, $fin);
+        $ins->execute();
+    }
+    $conexion->commit();
+    horarioMedico($conexion, 0, true);
+
+    // Citas futuras que quedaron fuera del nuevo horario
+    $res = $conexion->query("SELECT * FROM cita WHERE id_medico_usuario = {$idMedico} AND estado IN ('pendiente', 'confirmada') AND requiere_reprogramacion = 0 AND TIMESTAMP(fecha, hora) > NOW()");
+    $marcar = $conexion->prepare('UPDATE cita SET requiere_reprogramacion = 1, motivo_reprogramacion = ? WHERE id_cita = ?');
+    $motivo = 'Cambio en el horario del médico';
+    $n = 0;
+    foreach ($res ? $res->fetch_all(MYSQLI_ASSOC) : [] as $c) {
+        if (medicoTrabajaEnTurno($conexion, $idMedico, $c['fecha'], $c['hora'])) {
+            continue;
+        }
+        $id = (int) $c['id_cita'];
+        $marcar->bind_param('si', $motivo, $id);
+        $marcar->execute();
+        if (!empty($c['id_usuario'])) {
+            insertarNotificacionPaciente($conexion, (int) $c['id_usuario'],
+                "⚠️ Su cita de {$c['servicio']} del " . textoTurno($c['fecha'], $c['hora']) . " debe cambiar de horario porque cambió el horario del médico. Recepción le enviará una propuesta, o elija otro turno desde Mis citas.",
+                'cita_reprogramar');
+        }
+        $n++;
+    }
+    if ($n) {
+        insertarNotificacionRol($conexion, 'recepcion', "🔁 {$n} cita(s) de {$nombre} quedaron fuera de su nuevo horario. Revise «Por reprogramar».", 'cita_reprogramar');
+    }
+    insertarNotificacionUsuario($conexion, 'medico', $idMedico, 'La coordinación actualizó su horario: ' . textoHorarioMedico($conexion, $idMedico) . '.', 'permiso_medico');
+    registrarAuditoria($conexion, 'horario_medico', "Horario de {$nombre}: " . textoHorarioMedico($conexion, $idMedico) . ($n ? " ({$n} cita(s) por reprogramar)" : ''), 'usuario', $idMedico);
+    return ['ok' => true, 'msg' => 'Horario guardado.' . ($n ? " {$n} cita(s) quedaron fuera y pasaron a Recepción para reprogramar." : '')];
 }

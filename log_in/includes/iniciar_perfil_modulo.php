@@ -14,6 +14,12 @@ if (!empty($accPerfilModulo['mensaje'])) {
 if (!empty($accPerfilModulo['page'])) {
     $pageRedirect = $accPerfilModulo['page'];
 }
+// Verificación en dos pasos (Configuración)
+require_once __DIR__ . '/../conexion/dos_pasos_servicio.php';
+if ($msgDosPasos = procesarDosPasos($conexion, $idUsuarioPerfil)) {
+    $mensaje = $msgDosPasos;
+    $pageRedirect = 'configPage';
+}
 $usuarioPerfil = obtenerDatosUsuario($conexion, $idUsuarioPerfil) ?? [];
 $prefsConfig = obtenerPreferenciasSesion();
 $rolLabelModulo = $rolLabelModulo ?? ucfirst($_SESSION['rol'] ?? 'Usuario');

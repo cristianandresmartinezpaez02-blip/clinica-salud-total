@@ -177,6 +177,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'cance
     $pageRedirect = 'citasPage';
 }
 
+// Consentimiento informado: aceptar, rechazar o revocar
+asegurarEsquemaHistoriaComplementos($conexion);
+vencerPropuestas($conexion);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'responder_consentimiento') {
+    $decision = (string) ($_POST['decision'] ?? '');
+    if ($decision === 'aceptado' && empty($_POST['leido'])) {
+        $mensaje = '❌ Para aceptar, confirme que leyó y entendió el consentimiento.';
+    } else {
+        $resC = responderConsentimiento($conexion, (int) ($_POST['id_consentimiento'] ?? 0), $idUsuario, 'paciente', $decision, (string) ($_POST['observacion'] ?? ''));
+        $mensaje = ($resC['ok'] ? '✅ ' : '❌ ') . $resC['msg'];
+    }
+    $pageRedirect = 'historialPage';
+}
+// Verificación en dos pasos (opcional para pacientes)
+require_once __DIR__ . '/../conexion/dos_pasos_servicio.php';
+if ($msgDos = procesarDosPasos($conexion, $idUsuario)) {
+    $mensaje = $msgDos;
+    $pageRedirect = 'perfilPage';
+}
+
 // Propuesta de cambio enviada por Recepción: el paciente decide
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'responder_propuesta') {
     $resProp = responderPropuestaCita($conexion, (int) ($_POST['id_cita'] ?? 0), $idUsuario, ($_POST['respuesta'] ?? '') === 'aceptar');
@@ -193,6 +213,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'cambi
     $pageRedirect = 'citasPage';
 }
 
+$misConsentimientos = consentimientosDePaciente($conexion, $idUsuario);
+$consentimientosPendientes = array_values(array_filter($misConsentimientos, fn($c) => $c['estado'] === 'pendiente'));
+$misOrdenes = ordenesDePaciente($conexion, $idUsuario);
+$misPagos = pagosDePaciente($conexion, $idUsuario);
 $propuestasPendientes = array_values(array_filter($citas, fn($c) => ($c['propuesta_estado'] ?? '') === 'pendiente' && in_array($c['estado'] ?? '', ['pendiente', 'confirmada'], true)));
 $citasPorCambiar = array_values(array_filter($citas, fn($c) => !empty($c['requiere_reprogramacion']) && ($c['propuesta_estado'] ?? '') !== 'pendiente' && in_array($c['estado'] ?? '', ['pendiente', 'confirmada'], true)));
 
@@ -355,6 +379,12 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                         <div class="alert alert-info d-flex flex-wrap justify-content-between align-items-center gap-2">
                             <span><i class="bi bi-calendar2-week me-1"></i> Recepción propone cambiar su cita de <strong><?php echo htmlspecialchars($pp['servicio']); ?></strong> al <strong><?php echo htmlspecialchars(textoTurno($pp['propuesta_fecha'], $pp['propuesta_hora'])); ?></strong>.</span>
                             <button class="btn btn-sm btn-primary" onclick="showPage('citasPage')">Revisar propuesta</button>
+                        </div>
+                    <?php endforeach; ?>
+                    <?php foreach ($consentimientosPendientes as $cp): ?>
+                        <div class="alert alert-warning d-flex flex-wrap justify-content-between align-items-center gap-2">
+                            <span><i class="bi bi-pen me-1"></i> Tiene un consentimiento informado por revisar: <strong><?php echo htmlspecialchars($cp['procedimiento']); ?></strong>.</span>
+                            <button class="btn btn-sm btn-warning" onclick="showPage('historialPage')">Revisar</button>
                         </div>
                     <?php endforeach; ?>
                     <?php foreach ($citasPorCambiar as $pc): ?>
@@ -599,6 +629,63 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                             <?php endif; ?>
                         </div></div></div>
                     </div>
+                    <?php if ($misOrdenes): ?>
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header bg-white fw-bold"><i class="bi bi-clipboard2-data"></i> Exámenes y resultados</div>
+                        <div class="list-group list-group-flush">
+                            <?php foreach ($misOrdenes as $o): ?>
+                            <div class="list-group-item">
+                                <div class="d-flex justify-content-between flex-wrap gap-2">
+                                    <strong><?php echo htmlspecialchars($o['descripcion']); ?></strong>
+                                    <?php echo $o['estado'] === 'resultado' ? '<span class="badge bg-success">Resultado disponible</span>' : '<span class="badge bg-warning text-dark">Pendiente</span>'; ?>
+                                </div>
+                                <small class="text-muted">Ordenado el <?php echo date('d/m/Y', strtotime($o['fecha_firma'])); ?> por <?php echo htmlspecialchars($o['firmado_por']); ?><?php echo $o['observacion'] ? ' · ' . htmlspecialchars($o['observacion']) : ''; ?></small>
+                                <?php if ($o['estado'] === 'resultado'): ?>
+                                    <?php if ($o['resultado_texto']): ?><p class="small mb-1 mt-1" style="white-space:pre-line"><?php echo htmlspecialchars($o['resultado_texto']); ?></p><?php endif; ?>
+                                    <?php if ($o['resultado_archivo']): ?><a class="btn btn-sm btn-outline-primary mt-1" href="ver_resultado.php?id=<?php echo (int) $o['id_orden']; ?>" target="_blank" rel="noopener"><i class="bi bi-file-earmark-medical"></i> Ver resultado</a><?php endif; ?>
+                                    <p class="small mb-0 mt-1"><?php echo $o['fecha_revision'] ? '<strong>Su médico lo revisó</strong>' . ($o['comentario_medico'] ? ': ' . htmlspecialchars($o['comentario_medico']) : '.') : '<span class="text-muted">Pendiente de revisión por su médico.</span>'; ?></p>
+                                <?php endif; ?>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if ($misConsentimientos): ?>
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header bg-white fw-bold"><i class="bi bi-pen"></i> Consentimientos informados</div>
+                        <div class="list-group list-group-flush">
+                            <?php foreach ($misConsentimientos as $ci): ?>
+                            <div class="list-group-item">
+                                <div class="d-flex justify-content-between flex-wrap gap-2 align-items-center">
+                                    <div><strong><?php echo htmlspecialchars($ci['procedimiento']); ?></strong><br><small class="text-muted"><?php echo htmlspecialchars($ci['nombre_medico']); ?> · <?php echo date('d/m/Y', strtotime($ci['fecha_creacion'])); ?></small></div>
+                                    <div class="d-flex gap-2 align-items-center"><?php echo badgeConsentimiento($ci['estado']); ?><a class="btn btn-sm btn-outline-primary" href="documento.php?tipo=consentimiento&amp;id=<?php echo (int) $ci['id_consentimiento']; ?>" target="_blank" rel="noopener">Leer documento</a></div>
+                                </div>
+                                <?php if ($ci['estado'] === 'pendiente'): ?>
+                                <div class="small mt-2"><strong>Riesgos:</strong> <?php echo nl2br(htmlspecialchars($ci['riesgos'])); ?></div>
+                                <form method="POST" class="mt-2">
+                                    <input type="hidden" name="accion" value="responder_consentimiento">
+                                    <input type="hidden" name="id_consentimiento" value="<?php echo (int) $ci['id_consentimiento']; ?>">
+                                    <div class="form-check"><input class="form-check-input" type="checkbox" name="leido" value="1" id="leido<?php echo (int) $ci['id_consentimiento']; ?>"><label class="form-check-label small" for="leido<?php echo (int) $ci['id_consentimiento']; ?>">Leí el documento completo, entendí la información y pude resolver mis dudas.</label></div>
+                                    <div class="d-flex gap-2 mt-2">
+                                        <button class="btn btn-sm btn-success" name="decision" value="aceptado">Acepto</button>
+                                        <button class="btn btn-sm btn-outline-danger" name="decision" value="rechazado" onclick="return confirm('¿No acepta el procedimiento? Su médico será informado.')">No acepto</button>
+                                    </div>
+                                </form>
+                                <?php elseif (in_array($ci['estado'], ['aceptado', 'firmado_fisico'], true)): ?>
+                                <form method="POST" class="mt-2" onsubmit="return confirm('¿Revocar su consentimiento? El procedimiento no se realizará.')">
+                                    <input type="hidden" name="accion" value="responder_consentimiento">
+                                    <input type="hidden" name="id_consentimiento" value="<?php echo (int) $ci['id_consentimiento']; ?>">
+                                    <input type="hidden" name="decision" value="revocado">
+                                    <button class="btn btn-sm btn-link text-danger p-0">Revocar consentimiento</button>
+                                </form>
+                                <?php endif; ?>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
                     <?php if (count($consultas) > 0): ?>
                         <?php foreach ($consultas as $cons):
                             $nomMed = trim(($cons['med_nom'] ?? '') . ' ' . ($cons['med_ape'] ?? ''));
@@ -657,8 +744,26 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
 
                 <!-- Facturas -->
                 <div id="facturasPage" class="page-section">
-                    <h2><i class="bi bi-receipt"></i> Mis Facturas de Farmacia</h2>
-                    <p class="text-muted">Facturas emitidas cuando retiras medicamentos en farmacia.</p>
+                    <h2><i class="bi bi-receipt"></i> Mis pagos y facturas</h2>
+                    <p class="text-muted">Recibos de sus consultas y facturas de los medicamentos que retira en farmacia.</p>
+                    <?php if ($misPagos): ?>
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header bg-white fw-bold"><i class="bi bi-cash-coin"></i> Pagos de consultas</div>
+                        <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+                            <thead><tr><th>Recibo</th><th>Consulta</th><th>Fecha de pago</th><th class="text-end">Valor</th><th></th></tr></thead><tbody>
+                            <?php foreach ($misPagos as $pg): ?>
+                            <tr<?php echo $pg['estado'] !== 'pagado' ? ' class="text-muted"' : ''; ?>>
+                                <td>#<?php echo (int) $pg['id_pago']; ?><?php echo $pg['estado'] !== 'pagado' ? ' <span class="badge bg-secondary">Anulado</span>' : ''; ?></td>
+                                <td><?php echo htmlspecialchars($pg['servicio']); ?> · <?php echo date('d/m/Y', strtotime($pg['fecha_cita'])); ?></td>
+                                <td><?php echo date('d/m/Y g:i a', strtotime($pg['fecha'])); ?></td>
+                                <td class="text-end"><?php echo formatoPesos((int) $pg['valor']); ?></td>
+                                <td><a class="btn btn-sm btn-outline-primary" href="documento.php?tipo=recibo&amp;id=<?php echo (int) $pg['id_pago']; ?>" target="_blank" rel="noopener">Recibo</a></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody></table></div>
+                    </div>
+                    <?php endif; ?>
+                    <h5 class="mb-3"><i class="bi bi-capsule"></i> Facturas de farmacia</h5>
                     <?php if (count($facturasPaciente) > 0): ?>
                         <?php foreach ($facturasPaciente as $fac): ?>
                         <div class="card shadow-sm mb-3" style="border-left:4px solid #6f42c1;">
@@ -751,6 +856,7 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                             </form>
                         </div>
                     </div>
+                    <?php echo renderBloqueDosPasos($conexion, $idUsuario); ?>
                 </div>
             </div>
         </main>

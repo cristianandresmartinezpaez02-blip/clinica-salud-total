@@ -17,6 +17,7 @@
 require_once __DIR__ . '/clinica_servicio.php';
 require_once __DIR__ . '/cie10_catalogo.php';
 require_once __DIR__ . '/notificaciones_servicio.php';
+require_once __DIR__ . '/caja_servicio.php'; // documentoImprimible()
 
 const MAX_ITEMS_FORMULA = 10;
 const MAX_ORDENES       = 10;
@@ -452,6 +453,7 @@ function obtenerConsultaClinica(mysqli $conexion, int $idConsulta): ?array
     }
     $c['paciente'] = $c['id_paciente_usuario'] ? fichaPaciente($conexion, (int) $c['id_paciente_usuario']) : null;
     $c['codigo_verificacion'] = strtoupper(substr($c['huella'], 0, 12));
+    $c['notas'] = notasAclaratorias($conexion, $idConsulta);
     return $c;
 }
 
@@ -569,6 +571,9 @@ function htmlDocumentoClinico(array $c, string $tipo): string
         $cuerpo .= '<h2>Recomendaciones y signos de alarma</h2><p>' . $nl($c['recomendaciones']) . '</p><table class="doc-tabla">'
             . $fila('Incapacidad', (int) $c['incapacidad_dias'] > 0 ? (int) $c['incapacidad_dias'] . ' día(s) desde el ' . date('d/m/Y', strtotime($c['incapacidad_inicio'])) : 'No')
             . $fila('Control', $e($c['control_texto'])) . '</table>';
+        foreach ($c['notas'] ?? [] as $n) {
+            $cuerpo .= '<h2>Nota aclaratoria · ' . $e(date('d/m/Y g:i a', strtotime($n['fecha']))) . '</h2><p>' . $nl($n['texto']) . '<br><small>' . $e($n['nombre_medico']) . ' · código ' . $e(strtoupper(substr($n['huella'], 0, 12))) . '</small></p>';
+        }
     }
 
     $css = 'body{font-family:"Segoe UI",Arial,sans-serif;color:#1c2733;margin:0;background:#eef2f6}
@@ -586,14 +591,14 @@ p{font-size:13px;line-height:1.55;margin:6px 0}.doc-signos{background:#f5f8fb;pa
 .doc-certifica{font-size:15px;line-height:1.8;margin:24px 0}.doc-nota{font-size:12px;color:#5b6b80}
 .doc-firma{margin-top:48px;font-size:13px;text-align:center}.doc-linea{width:260px;border-top:1px solid #1c2733;margin:0 auto 6px}
 .doc-firma small{color:#5b6b80}.doc-pie{margin-top:18px;font-size:11px;color:#8695a7;text-align:center}
-.doc-acciones{max-width:820px;margin:16px auto 0;text-align:right}.doc-acciones button{background:#0b5394;color:#fff;border:0;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer}
+.doc-acciones{max-width:820px;margin:16px auto 0;text-align:right}.doc-acciones{display:flex;gap:8px;justify-content:flex-end}.doc-acciones button{background:#0b5394;color:#fff;border:0;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer}.doc-acciones button.sec{background:#fff;color:#0b5394;border:1px solid #0b5394}
 @media print{body{background:#fff}.doc{box-shadow:none;margin:0;max-width:none;padding:0}.doc-acciones{display:none}}
 @media (max-width:640px){.doc{padding:20px 16px;margin:0}.doc-grid{grid-template-columns:1fr 1fr}.doc-head{flex-direction:column}.doc-tit{text-align:left}}';
 
     return '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' . $e($titulo) . ' — ' . $e($nombrePac)
-        . '</title><style>' . $css . '</style></head><body><div class="doc-acciones"><button onclick="window.print()">Imprimir o guardar PDF</button></div><main class="doc">'
+        . '</title><style>' . $css . '</style></head><body><div class="doc-acciones"><button class="sec" onclick="window.print()">Imprimir</button><button id="btnPdf">Descargar PDF</button></div><main class="doc" id="documento">'
         . $cabecera . $paciente . $cuerpo . $firma
-        . '<div class="doc-pie">Documento confidencial (historia clínica, Ley 23 de 1981 y Resolución 1995 de 1999). Generado el ' . date('d/m/Y g:i a') . '.</div></main></body></html>';
+        . '<div class="doc-pie">Documento confidencial (historia clínica, Ley 23 de 1981 y Resolución 1995 de 1999). Generado el ' . date('d/m/Y g:i a') . '.</div></main>' . scriptDescargaPdf($tipo . '-' . (int) $c['id_consulta']) . '</body></html>';
 }
 
 /** Botones para abrir los documentos de una consulta (desde los paneles en log_in/modulos). */
@@ -610,4 +615,334 @@ function enlacesDocumentosConsulta(mysqli $conexion, int $idConsulta): string
         $html .= '<a class="btn btn-sm btn-outline-primary" href="exportar_diagnostico.php?id=' . $idConsulta . '&amp;doc=' . $tipo . '" target="_blank" rel="noopener"><i class="bi ' . $iconos[$tipo] . '"></i> ' . htmlspecialchars($etq) . '</a>';
     }
     return $html;
+}
+
+/* ============================== ESQUEMA COMPLEMENTARIO ============================== */
+
+function asegurarEsquemaHistoriaComplementos(mysqli $conexion): void
+{
+    static $hecho = false;
+    if ($hecho) {
+        return;
+    }
+    $hecho = true;
+    asegurarEsquemaHistoria($conexion);
+    // Notas aclaratorias: la historia firmada no se modifica; se le agregan notas
+    $conexion->query("CREATE TABLE IF NOT EXISTS nota_aclaratoria (
+        id_nota INT AUTO_INCREMENT PRIMARY KEY,
+        id_consulta INT NOT NULL,
+        id_medico_usuario INT NOT NULL,
+        nombre_medico VARCHAR(150) NOT NULL,
+        texto TEXT NOT NULL,
+        fecha DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        huella CHAR(64) NOT NULL,
+        INDEX idx_nota_consulta (id_consulta)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+    // Consentimiento informado
+    $conexion->query("CREATE TABLE IF NOT EXISTS consentimiento (
+        id_consentimiento INT AUTO_INCREMENT PRIMARY KEY,
+        id_paciente_usuario INT NOT NULL,
+        id_medico_usuario INT NOT NULL,
+        nombre_medico VARCHAR(150) NOT NULL,
+        procedimiento VARCHAR(200) NOT NULL,
+        descripcion TEXT NOT NULL,
+        riesgos TEXT NOT NULL,
+        beneficios TEXT NOT NULL,
+        alternativas TEXT NOT NULL,
+        firmante VARCHAR(10) NOT NULL DEFAULT 'paciente',
+        acudiente_nombre VARCHAR(120) NULL,
+        acudiente_documento VARCHAR(30) NULL,
+        acudiente_parentesco VARCHAR(60) NULL,
+        estado VARCHAR(15) NOT NULL DEFAULT 'pendiente',
+        fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        fecha_respuesta DATETIME NULL,
+        ip_respuesta VARCHAR(45) NULL,
+        observacion VARCHAR(255) NULL,
+        huella CHAR(64) NULL,
+        INDEX idx_cons_paciente (id_paciente_usuario)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+    // Resultados de las órdenes (laboratorio, imágenes)
+    $columnas = [
+        'estado'           => "VARCHAR(15) NOT NULL DEFAULT 'pendiente'",
+        'resultado_texto'  => 'TEXT NULL',
+        'resultado_archivo'=> 'VARCHAR(80) NULL',
+        'resultado_fecha'  => 'DATETIME NULL',
+        'resultado_por'    => 'VARCHAR(120) NULL',
+        'revisado_por'     => 'VARCHAR(150) NULL',
+        'fecha_revision'   => 'DATETIME NULL',
+        'comentario_medico'=> 'VARCHAR(500) NULL',
+    ];
+    foreach ($columnas as $col => $def) {
+        $chk = $conexion->query("SHOW COLUMNS FROM orden_medica LIKE '$col'");
+        if ($chk && $chk->num_rows === 0) {
+            $conexion->query("ALTER TABLE orden_medica ADD COLUMN $col $def");
+        }
+    }
+}
+
+/* ============================== NOTAS ACLARATORIAS ============================== */
+
+function agregarNotaAclaratoria(mysqli $conexion, int $idConsulta, int $idMedico, string $nombreMedico, string $texto): array
+{
+    asegurarEsquemaHistoriaComplementos($conexion);
+    $c = obtenerConsultaClinica($conexion, $idConsulta);
+    if (!$c || (int) $c['id_medico_usuario'] !== $idMedico) {
+        return ['ok' => false, 'msg' => 'Solo el médico que firmó la consulta puede agregarle notas aclaratorias.'];
+    }
+    $texto = mb_substr(trim($texto), 0, 3000);
+    if (mb_strlen($texto) < 10) {
+        return ['ok' => false, 'msg' => 'Escriba la nota aclaratoria (mínimo 10 caracteres).'];
+    }
+    $huella = hash('sha256', $idConsulta . '|' . $idMedico . '|' . $texto . '|' . date('c'));
+    $stmt = $conexion->prepare('INSERT INTO nota_aclaratoria (id_consulta, id_medico_usuario, nombre_medico, texto, huella) VALUES (?, ?, ?, ?, ?)');
+    $stmt->bind_param('iisss', $idConsulta, $idMedico, $nombreMedico, $texto, $huella);
+    $stmt->execute();
+    registrarAuditoria($conexion, 'nota_aclaratoria', "Consulta #{$idConsulta}: " . mb_substr($texto, 0, 200), 'consulta', $idConsulta);
+    return ['ok' => true, 'msg' => 'Nota aclaratoria agregada a la historia (la consulta original no se modificó).'];
+}
+
+function notasAclaratorias(mysqli $conexion, int $idConsulta): array
+{
+    asegurarEsquemaHistoriaComplementos($conexion);
+    return $conexion->query('SELECT * FROM nota_aclaratoria WHERE id_consulta = ' . $idConsulta . ' ORDER BY fecha')->fetch_all(MYSQLI_ASSOC);
+}
+
+/* ============================== CONSENTIMIENTO INFORMADO ============================== */
+
+function estadosConsentimiento(): array
+{
+    return [
+        'pendiente'      => ['Pendiente de firma', 'warning'],
+        'aceptado'       => ['Aceptado en el portal', 'success'],
+        'firmado_fisico' => ['Firmado en consultorio', 'success'],
+        'rechazado'      => ['No aceptado', 'danger'],
+        'revocado'       => ['Revocado', 'secondary'],
+    ];
+}
+
+function badgeConsentimiento(string $estado): string
+{
+    [$t, $c] = estadosConsentimiento()[$estado] ?? [$estado, 'secondary'];
+    return '<span class="badge bg-' . $c . ($c === 'warning' ? ' text-dark' : '') . '">' . htmlspecialchars($t) . '</span>';
+}
+
+/** El médico redacta el consentimiento de un procedimiento. Menores de edad: firma el acudiente. */
+function crearConsentimiento(mysqli $conexion, int $idPaciente, int $idMedico, string $nombreMedico, array $d): array
+{
+    asegurarEsquemaHistoriaComplementos($conexion);
+    if (!medicoAtiendePaciente($conexion, $idMedico, $idPaciente)) {
+        return ['ok' => false, 'msg' => 'Solo puede crear consentimientos para sus pacientes.'];
+    }
+    $t = fn($k, $max = 3000) => mb_substr(trim((string) ($d[$k] ?? '')), 0, $max);
+    $campos = ['procedimiento' => $t('procedimiento', 200), 'descripcion' => $t('descripcion'), 'riesgos' => $t('riesgos'), 'beneficios' => $t('beneficios'), 'alternativas' => $t('alternativas')];
+    foreach (['procedimiento' => 'el procedimiento', 'descripcion' => 'en qué consiste', 'riesgos' => 'los riesgos', 'beneficios' => 'los beneficios', 'alternativas' => 'las alternativas'] as $k => $etq) {
+        if (mb_strlen($campos[$k]) < 5) {
+            return ['ok' => false, 'msg' => "Explique {$etq}."];
+        }
+    }
+    $ficha = fichaPaciente($conexion, $idPaciente);
+    $menor = $ficha && $ficha['edad'] !== null && $ficha['edad'] < 18;
+    $firmante = $menor ? 'acudiente' : 'paciente';
+    $acNombre = $t('acudiente_nombre', 120);
+    $acDoc = $t('acudiente_documento', 30);
+    $acPar = $t('acudiente_parentesco', 60);
+    if ($menor && ($acNombre === '' || $acDoc === '' || $acPar === '')) {
+        return ['ok' => false, 'msg' => 'El paciente es menor de edad: escriba nombre, documento y parentesco del acudiente que firma.'];
+    }
+    $stmt = $conexion->prepare('INSERT INTO consentimiento (id_paciente_usuario, id_medico_usuario, nombre_medico, procedimiento, descripcion, riesgos, beneficios, alternativas,
+            firmante, acudiente_nombre, acudiente_documento, acudiente_parentesco) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $acNombre = $acNombre ?: null;
+    $acDoc = $acDoc ?: null;
+    $acPar = $acPar ?: null;
+    $stmt->bind_param('iissssssssss', $idPaciente, $idMedico, $nombreMedico, $campos['procedimiento'], $campos['descripcion'], $campos['riesgos'], $campos['beneficios'], $campos['alternativas'], $firmante, $acNombre, $acDoc, $acPar);
+    $stmt->execute();
+    $id = (int) $stmt->insert_id;
+    insertarNotificacionPaciente($conexion, $idPaciente, "📝 Consentimiento informado pendiente: {$campos['procedimiento']}.\n\nLéalo en Mi historial → Consentimientos y acéptelo o recházelo. También puede firmarlo en el consultorio.", 'consentimiento');
+    registrarAuditoria($conexion, 'consentimiento', "Consentimiento #{$id} creado: {$campos['procedimiento']}", 'consentimiento', $id);
+    return ['ok' => true, 'msg' => 'Consentimiento creado. El paciente lo verá en su portal; si lo firma en papel, márquelo como firmado en consultorio.', 'id' => $id];
+}
+
+function obtenerConsentimiento(mysqli $conexion, int $id): ?array
+{
+    asegurarEsquemaHistoriaComplementos($conexion);
+    $r = $conexion->query('SELECT * FROM consentimiento WHERE id_consentimiento = ' . $id);
+    return $r ? ($r->fetch_assoc() ?: null) : null;
+}
+
+function consentimientosDePaciente(mysqli $conexion, int $idPaciente): array
+{
+    asegurarEsquemaHistoriaComplementos($conexion);
+    return $conexion->query('SELECT * FROM consentimiento WHERE id_paciente_usuario = ' . $idPaciente . ' ORDER BY fecha_creacion DESC')->fetch_all(MYSQLI_ASSOC);
+}
+
+/**
+ * Cambia el estado: paciente (aceptado / rechazado / revocado) o médico (firmado_fisico).
+ * $actor: 'paciente' | 'medico'
+ */
+function responderConsentimiento(mysqli $conexion, int $id, int $idActor, string $actor, string $nuevo, string $observacion = ''): array
+{
+    $c = obtenerConsentimiento($conexion, $id);
+    if (!$c) {
+        return ['ok' => false, 'msg' => 'Consentimiento no encontrado.'];
+    }
+    $permitido = match (true) {
+        $actor === 'paciente' && (int) $c['id_paciente_usuario'] === $idActor && $c['estado'] === 'pendiente' => in_array($nuevo, ['aceptado', 'rechazado'], true),
+        $actor === 'paciente' && (int) $c['id_paciente_usuario'] === $idActor && in_array($c['estado'], ['aceptado', 'firmado_fisico'], true) => $nuevo === 'revocado',
+        $actor === 'medico' && (int) $c['id_medico_usuario'] === $idActor && $c['estado'] === 'pendiente' => $nuevo === 'firmado_fisico',
+        default => false,
+    };
+    if (!$permitido) {
+        return ['ok' => false, 'msg' => 'Esa acción no está disponible para este consentimiento.'];
+    }
+    $obs = mb_substr(trim($observacion), 0, 255) ?: null;
+    $ip = substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
+    $huella = hash('sha256', json_encode([$c['id_consentimiento'], $c['procedimiento'], $c['riesgos'], $nuevo, $idActor, date('c')]));
+    $stmt = $conexion->prepare('UPDATE consentimiento SET estado = ?, fecha_respuesta = NOW(), ip_respuesta = ?, observacion = ?, huella = ? WHERE id_consentimiento = ?');
+    $stmt->bind_param('ssssi', $nuevo, $ip, $obs, $huella, $id);
+    $stmt->execute();
+    $etq = estadosConsentimiento()[$nuevo][0];
+    registrarAuditoria($conexion, 'consentimiento', "Consentimiento #{$id} ({$c['procedimiento']}): {$etq}" . ($obs ? " — {$obs}" : ''), 'consentimiento', $id);
+    if ($actor === 'paciente') {
+        insertarNotificacionUsuario($conexion, 'medico', (int) $c['id_medico_usuario'], "Consentimiento #{$id} ({$c['procedimiento']}): {$etq} por el paciente.", 'consentimiento');
+    }
+    return ['ok' => true, 'msg' => "Consentimiento: {$etq}."];
+}
+
+function htmlConsentimiento(mysqli $conexion, array $c): string
+{
+    $e = fn($v) => nl2br(htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'));
+    $f = fichaPaciente($conexion, (int) $c['id_paciente_usuario']);
+    $paciente = $f ? trim($f['nombre'] . ' ' . $f['apellido']) . ', ' . trim(($f['tipo_documento'] ?? '') . ' ' . ($f['documento'] ?? '')) : '';
+    $quien = $c['firmante'] === 'acudiente'
+        ? 'Yo, <strong>' . $e($c['acudiente_nombre']) . '</strong>, identificado(a) con ' . $e($c['acudiente_documento']) . ', en calidad de ' . $e($c['acudiente_parentesco']) . ' del paciente <strong>' . $e($paciente) . '</strong>,'
+        : 'Yo, <strong>' . $e($paciente) . '</strong>,';
+    $estado = estadosConsentimiento()[$c['estado']][0] ?? $c['estado'];
+    $cuerpo = '<p>' . $quien . ' declaro que el(la) Dr(a). <strong>' . $e($c['nombre_medico']) . '</strong> me explicó en lenguaje claro el procedimiento <strong>' . $e($c['procedimiento']) . '</strong>, y que pude hacer preguntas que me fueron resueltas.</p>'
+        . '<table class="doc-tabla"><tr><th>En qué consiste</th><td>' . $e($c['descripcion']) . '</td></tr><tr><th>Riesgos</th><td>' . $e($c['riesgos']) . '</td></tr>'
+        . '<tr><th>Beneficios</th><td>' . $e($c['beneficios']) . '</td></tr><tr><th>Alternativas</th><td>' . $e($c['alternativas']) . '</td></tr></table>'
+        . '<p>Entiendo que puedo revocar este consentimiento en cualquier momento antes del procedimiento, sin que ello afecte mi atención.</p>'
+        . '<p class="doc-total" style="text-align:left;font-size:15px">Estado: ' . htmlspecialchars($estado) . ($c['fecha_respuesta'] ? ' · ' . date('d/m/Y g:i a', strtotime($c['fecha_respuesta'])) : '') . '</p>'
+        . ($c['estado'] === 'aceptado' ? '<p class="doc-nota">Aceptado electrónicamente desde el portal del paciente (IP ' . htmlspecialchars((string) $c['ip_respuesta']) . '). Código: ' . strtoupper(substr((string) $c['huella'], 0, 12)) . '</p>' : '')
+        . '<div style="display:flex;gap:40px;justify-content:space-around;flex-wrap:wrap"><div class="doc-firma"><div class="doc-linea"></div>' . ($c['firmante'] === 'acudiente' ? 'Acudiente' : 'Paciente') . '</div>'
+        . '<div class="doc-firma"><div class="doc-linea"></div>' . $e($c['nombre_medico']) . '<br>Médico tratante</div></div>';
+    return documentoImprimible('Consentimiento informado N.º ' . (int) $c['id_consentimiento'], 'consentimiento-' . (int) $c['id_consentimiento'], $cuerpo);
+}
+
+/* ============================== RESULTADOS DE EXÁMENES ============================== */
+
+/** Órdenes de laboratorio e imágenes de un paciente (con su estado y resultado). */
+function ordenesDePaciente(mysqli $conexion, int $idPaciente, ?string $estado = null): array
+{
+    asegurarEsquemaHistoriaComplementos($conexion);
+    $sql = "SELECT o.*, cc.fecha_firma, cc.firmado_por, cc.id_medico_usuario, cc.id_paciente_usuario
+        FROM orden_medica o INNER JOIN consulta_clinica cc ON cc.id_consulta = o.id_consulta
+        WHERE cc.id_paciente_usuario = {$idPaciente} AND o.tipo IN ('laboratorio', 'imagen')";
+    if ($estado) {
+        $sql .= " AND o.estado = '" . $conexion->real_escape_string($estado) . "'";
+    }
+    return $conexion->query($sql . ' ORDER BY cc.fecha_firma DESC, o.id_orden')->fetch_all(MYSQLI_ASSOC);
+}
+
+function obtenerOrden(mysqli $conexion, int $idOrden): ?array
+{
+    asegurarEsquemaHistoriaComplementos($conexion);
+    $r = $conexion->query("SELECT o.*, cc.id_medico_usuario, cc.id_paciente_usuario, cc.firmado_por FROM orden_medica o
+        INNER JOIN consulta_clinica cc ON cc.id_consulta = o.id_consulta WHERE o.id_orden = {$idOrden}");
+    return $r ? ($r->fetch_assoc() ?: null) : null;
+}
+
+/** Resultados cargados que el médico aún no revisa. */
+function resultadosPorRevisar(mysqli $conexion, int $idMedico): array
+{
+    asegurarEsquemaHistoriaComplementos($conexion);
+    return $conexion->query("SELECT o.*, cc.id_paciente_usuario, CONCAT(u.nombre, ' ', u.apellido) AS paciente
+        FROM orden_medica o INNER JOIN consulta_clinica cc ON cc.id_consulta = o.id_consulta
+        LEFT JOIN usuario u ON u.id_usuario = cc.id_paciente_usuario
+        WHERE cc.id_medico_usuario = {$idMedico} AND o.estado = 'resultado' AND o.fecha_revision IS NULL
+        ORDER BY o.resultado_fecha")->fetch_all(MYSQLI_ASSOC);
+}
+
+/** Guarda el archivo del resultado (PDF, JPG o PNG hasta 10 MB) con nombre aleatorio. */
+function subirArchivoResultado(array $archivo): array
+{
+    if (($archivo['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+        return ['ok' => true, 'nombre' => null];
+    }
+    if (($archivo['error'] ?? 1) !== UPLOAD_ERR_OK || !is_uploaded_file($archivo['tmp_name'])) {
+        return ['ok' => false, 'msg' => 'No se pudo recibir el archivo.'];
+    }
+    if ($archivo['size'] > 10 * 1024 * 1024) {
+        return ['ok' => false, 'msg' => 'El archivo no puede superar 10 MB.'];
+    }
+    $tipos = ['application/pdf' => 'pdf', 'image/jpeg' => 'jpg', 'image/png' => 'png'];
+    $mime = (new finfo(FILEINFO_MIME_TYPE))->file($archivo['tmp_name']);
+    if (!isset($tipos[$mime])) {
+        return ['ok' => false, 'msg' => 'Solo se aceptan resultados en PDF, JPG o PNG.'];
+    }
+    $dir = dirname(__DIR__) . '/uploads/resultados/';
+    if (!is_dir($dir)) {
+        mkdir($dir, 0755, true);
+    }
+    $nombre = 'res_' . bin2hex(random_bytes(10)) . '.' . $tipos[$mime];
+    if (!move_uploaded_file($archivo['tmp_name'], $dir . $nombre)) {
+        return ['ok' => false, 'msg' => 'No se pudo guardar el archivo.'];
+    }
+    return ['ok' => true, 'nombre' => $nombre];
+}
+
+/** Enfermería / laboratorio carga el resultado de una orden. */
+function cargarResultadoOrden(mysqli $conexion, int $idOrden, string $texto, array $archivo, string $por): array
+{
+    $o = obtenerOrden($conexion, $idOrden);
+    if (!$o || !in_array($o['tipo'], ['laboratorio', 'imagen'], true)) {
+        return ['ok' => false, 'msg' => 'Orden no encontrada.'];
+    }
+    if ($o['estado'] === 'resultado') {
+        return ['ok' => false, 'msg' => 'Esa orden ya tiene resultado.'];
+    }
+    $texto = mb_substr(trim($texto), 0, 5000);
+    $sub = subirArchivoResultado($archivo);
+    if (!$sub['ok']) {
+        return $sub;
+    }
+    if ($texto === '' && !$sub['nombre']) {
+        return ['ok' => false, 'msg' => 'Escriba el resultado o adjunte el archivo.'];
+    }
+    $nombre = $sub['nombre'];
+    $txt = $texto !== '' ? $texto : null;
+    $stmt = $conexion->prepare("UPDATE orden_medica SET estado = 'resultado', resultado_texto = ?, resultado_archivo = ?, resultado_fecha = NOW(), resultado_por = ? WHERE id_orden = ?");
+    $stmt->bind_param('sssi', $txt, $nombre, $por, $idOrden);
+    $stmt->execute();
+    insertarNotificacionUsuario($conexion, 'medico', (int) $o['id_medico_usuario'], "🧪 Resultado listo: {$o['descripcion']} (orden #{$idOrden}). Revíselo en Historia clínica.", 'resultado');
+    insertarNotificacionPaciente($conexion, (int) $o['id_paciente_usuario'], "🧪 Su resultado de «{$o['descripcion']}» ya está disponible en Mi historial. Su médico lo revisará y le indicará la conducta en el control.", 'resultado');
+    registrarAuditoria($conexion, 'resultado_cargado', "Orden #{$idOrden}: {$o['descripcion']}", 'orden', $idOrden);
+    return ['ok' => true, 'msg' => 'Resultado cargado. Se avisó al médico y al paciente.'];
+}
+
+function revisarResultadoOrden(mysqli $conexion, int $idOrden, int $idMedico, string $nombreMedico, string $comentario): array
+{
+    $o = obtenerOrden($conexion, $idOrden);
+    if (!$o || $o['estado'] !== 'resultado' || !medicoAtiendePaciente($conexion, $idMedico, (int) $o['id_paciente_usuario'])) {
+        return ['ok' => false, 'msg' => 'No puede revisar ese resultado.'];
+    }
+    $comentario = mb_substr(trim($comentario), 0, 500) ?: null;
+    $stmt = $conexion->prepare('UPDATE orden_medica SET revisado_por = ?, fecha_revision = NOW(), comentario_medico = ? WHERE id_orden = ?');
+    $stmt->bind_param('ssi', $nombreMedico, $comentario, $idOrden);
+    $stmt->execute();
+    registrarAuditoria($conexion, 'resultado_revisado', "Orden #{$idOrden}: {$o['descripcion']}" . ($comentario ? " — {$comentario}" : ''), 'orden', $idOrden);
+    if ($comentario) {
+        insertarNotificacionPaciente($conexion, (int) $o['id_paciente_usuario'], "🩺 Su médico revisó el resultado de «{$o['descripcion']}»: {$comentario}", 'resultado');
+    }
+    return ['ok' => true, 'msg' => 'Resultado marcado como revisado.'];
+}
+
+/** ¿Quién puede ver el archivo/resultado de una orden? */
+function puedeVerResultado(mysqli $conexion, array $o, int $idUsuario, string $rol): bool
+{
+    return match ($rol) {
+        'admin', 'enfermero' => true,
+        'paciente' => (int) $o['id_paciente_usuario'] === $idUsuario,
+        'medico'   => medicoAtiendePaciente($conexion, $idUsuario, (int) $o['id_paciente_usuario']),
+        default    => false,
+    };
 }

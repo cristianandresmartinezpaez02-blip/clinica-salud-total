@@ -22,6 +22,8 @@ const HORA_APERTURA = '07:00';   // se mantiene por compatibilidad
 const HORA_CIERRE   = '18:00';
 /** La jornada de la mañana va hasta este turno (exclusivo); desde aquí es la tarde. */
 const HORA_CORTE_JORNADA = '12:00';
+/** Horas que tiene el paciente para responder una propuesta de cambio; después el turno se libera. */
+const HORAS_VENCE_PROPUESTA = 48;
 
 /** Estados que ocupan un turno de la agenda. */
 const ESTADOS_QUE_OCUPAN = ['pendiente', 'confirmada', 'en_sala', 'atendida'];
@@ -54,6 +56,15 @@ function asegurarEsquemaAgenda(mysqli $conexion): void
         citas_afectadas INT NOT NULL DEFAULT 0,
         INDEX idx_permiso_medico (id_medico_usuario, estado),
         INDEX idx_permiso_fechas (fecha_inicio, fecha_fin)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+    // Horario de cada médico (si no tiene filas, trabaja todo el horario de la clínica)
+    $conexion->query("CREATE TABLE IF NOT EXISTS horario_medico (
+        id_medico_usuario INT NOT NULL,
+        dia TINYINT NOT NULL,
+        hora_inicio TIME NOT NULL,
+        hora_fin TIME NOT NULL,
+        PRIMARY KEY (id_medico_usuario, dia)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
     $columnas = [
@@ -213,9 +224,38 @@ function permisosAprobadosDelDia(mysqli $conexion, string $fecha, bool $reinicia
     return $cache[$fecha] = $mapa;
 }
 
-/** ¿El médico trabaja en ese turno? (no tiene un permiso aprobado que lo cubra) */
+/**
+ * Horario semanal del médico: [dia (1-6) => ['H:i inicio', 'H:i fin']]. Vacío = horario completo de la clínica.
+ */
+function horarioMedico(mysqli $conexion, int $idMedico, bool $reiniciar = false): array
+{
+    static $cache = [];
+    if ($reiniciar) {
+        $cache = [];
+        return [];
+    }
+    if (!isset($cache[$idMedico])) {
+        asegurarEsquemaAgenda($conexion);
+        $cache[$idMedico] = [];
+        $r = $conexion->query("SELECT dia, TIME_FORMAT(hora_inicio, '%H:%i') AS i, TIME_FORMAT(hora_fin, '%H:%i') AS f FROM horario_medico WHERE id_medico_usuario = {$idMedico}");
+        foreach ($r ? $r->fetch_all(MYSQLI_ASSOC) : [] as $h) {
+            $cache[$idMedico][(int) $h['dia']] = [$h['i'], $h['f']];
+        }
+    }
+    return $cache[$idMedico];
+}
+
+/** ¿El médico trabaja en ese turno? (está en su horario y no tiene un permiso aprobado que lo cubra) */
 function medicoTrabajaEnTurno(mysqli $conexion, int $idMedico, string $fecha, string $hora): bool
 {
+    $horario = horarioMedico($conexion, $idMedico);
+    if ($horario) {
+        $dia = (int) date('N', strtotime($fecha));
+        $h = date('H:i', strtotime($hora));
+        if (!isset($horario[$dia]) || $h < $horario[$dia][0] || $h >= $horario[$dia][1]) {
+            return false;
+        }
+    }
     foreach (permisosAprobadosDelDia($conexion, $fecha)[$idMedico] ?? [] as $jornada) {
         if (turnoEnJornada($hora, $jornada)) {
             return false;
@@ -241,6 +281,7 @@ function ocupacionDelDia(mysqli $conexion, string $fecha, string $servicio, ?int
         UNION ALL
         SELECT id_cita, TIME_FORMAT(propuesta_hora, '%H:%i') AS h, propuesta_id_medico AS id_medico, 1 AS propuesta
         FROM cita WHERE propuesta_fecha = ? AND servicio = ? AND propuesta_estado = 'pendiente'
+            AND propuesta_fecha_envio >= NOW() - INTERVAL " . HORAS_VENCE_PROPUESTA . " HOUR
             AND estado IN ('pendiente', 'confirmada') AND id_cita <> ?");
     $stmt->bind_param('ssissi', $fecha, $servicio, $excluir, $fecha, $servicio, $excluir);
     $stmt->execute();
@@ -363,7 +404,8 @@ function medicoLibreEnTurno(mysqli $conexion, int $idMedico, string $fecha, stri
     $estados = estadosQueOcupanSql($conexion);
     $stmt = $conexion->prepare("SELECT COUNT(*) AS n FROM cita WHERE id_cita <> ? AND (
             (id_medico_usuario = ? AND fecha = ? AND TIME_FORMAT(hora, '%H:%i') = ? AND estado IN ($estados))
-         OR (propuesta_id_medico = ? AND propuesta_fecha = ? AND TIME_FORMAT(propuesta_hora, '%H:%i') = ? AND propuesta_estado = 'pendiente' AND estado IN ('pendiente', 'confirmada')))");
+         OR (propuesta_id_medico = ? AND propuesta_fecha = ? AND TIME_FORMAT(propuesta_hora, '%H:%i') = ? AND propuesta_estado = 'pendiente' AND estado IN ('pendiente', 'confirmada')
+             AND propuesta_fecha_envio >= NOW() - INTERVAL " . HORAS_VENCE_PROPUESTA . " HOUR))");
     $stmt->bind_param('iississ', $excluir, $idMedico, $fecha, $h, $idMedico, $fecha, $h);
     $stmt->execute();
     return (int) $stmt->get_result()->fetch_assoc()['n'] === 0;

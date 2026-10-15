@@ -1191,15 +1191,119 @@ CREATE TABLE IF NOT EXISTS `formula_item` (
   PRIMARY KEY (`id_item`),
   KEY `idx_fi_consulta` (`id_consulta`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Caja, inventario, resultados, consentimiento, notas aclaratorias y horario de médicos
 CREATE TABLE IF NOT EXISTS `orden_medica` (
   `id_orden` int(11) NOT NULL AUTO_INCREMENT,
   `id_consulta` int(11) NOT NULL,
   `tipo` varchar(30) NOT NULL,
   `descripcion` varchar(255) NOT NULL,
   `observacion` varchar(255) DEFAULT NULL,
+  `estado` varchar(15) NOT NULL DEFAULT 'pendiente',
+  `resultado_texto` text DEFAULT NULL,
+  `resultado_archivo` varchar(80) DEFAULT NULL,
+  `resultado_fecha` datetime DEFAULT NULL,
+  `resultado_por` varchar(120) DEFAULT NULL,
+  `revisado_por` varchar(150) DEFAULT NULL,
+  `fecha_revision` datetime DEFAULT NULL,
+  `comentario_medico` varchar(500) DEFAULT NULL,
   PRIMARY KEY (`id_orden`),
   KEY `idx_om_consulta` (`id_consulta`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `horario_medico` (
+  `id_medico_usuario` int(11) NOT NULL,
+  `dia` tinyint(4) NOT NULL,
+  `hora_inicio` time NOT NULL,
+  `hora_fin` time NOT NULL,
+  PRIMARY KEY (`id_medico_usuario`,`dia`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `tarifa_consulta` (
+  `especialidad` varchar(100) NOT NULL,
+  `valor` int(11) NOT NULL,
+  `actualizado_por` varchar(120) DEFAULT NULL,
+  `fecha_actualizacion` datetime DEFAULT NULL,
+  PRIMARY KEY (`especialidad`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `pago_cita` (
+  `id_pago` int(11) NOT NULL AUTO_INCREMENT,
+  `id_cita` int(11) NOT NULL,
+  `valor` int(11) NOT NULL,
+  `medio` varchar(20) NOT NULL,
+  `referencia` varchar(60) DEFAULT NULL,
+  `estado` varchar(10) NOT NULL DEFAULT 'pagado',
+  `recibido_por` varchar(120) NOT NULL,
+  `id_recibe` int(11) DEFAULT NULL,
+  `fecha` datetime NOT NULL DEFAULT current_timestamp(),
+  `motivo_anulacion` varchar(255) DEFAULT NULL,
+  `anulado_por` varchar(120) DEFAULT NULL,
+  `fecha_anulacion` datetime DEFAULT NULL,
+  PRIMARY KEY (`id_pago`),
+  KEY `idx_pago_cita` (`id_cita`),
+  KEY `idx_pago_fecha` (`fecha`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `movimiento_inventario` (
+  `id_movimiento` int(11) NOT NULL AUTO_INCREMENT,
+  `id_medicamento` int(11) NOT NULL,
+  `tipo` varchar(10) NOT NULL,
+  `cantidad` int(11) NOT NULL,
+  `stock_resultante` int(11) NOT NULL,
+  `lote` varchar(40) DEFAULT NULL,
+  `fecha_vencimiento` date DEFAULT NULL,
+  `referencia` varchar(120) DEFAULT NULL,
+  `usuario` varchar(120) DEFAULT NULL,
+  `fecha` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id_movimiento`),
+  KEY `idx_mov_med` (`id_medicamento`),
+  KEY `idx_mov_fecha` (`fecha`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `nota_aclaratoria` (
+  `id_nota` int(11) NOT NULL AUTO_INCREMENT,
+  `id_consulta` int(11) NOT NULL,
+  `id_medico_usuario` int(11) NOT NULL,
+  `nombre_medico` varchar(150) NOT NULL,
+  `texto` text NOT NULL,
+  `fecha` datetime NOT NULL DEFAULT current_timestamp(),
+  `huella` char(64) NOT NULL,
+  PRIMARY KEY (`id_nota`),
+  KEY `idx_nota_consulta` (`id_consulta`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `consentimiento` (
+  `id_consentimiento` int(11) NOT NULL AUTO_INCREMENT,
+  `id_paciente_usuario` int(11) NOT NULL,
+  `id_medico_usuario` int(11) NOT NULL,
+  `nombre_medico` varchar(150) NOT NULL,
+  `procedimiento` varchar(200) NOT NULL,
+  `descripcion` text NOT NULL,
+  `riesgos` text NOT NULL,
+  `beneficios` text NOT NULL,
+  `alternativas` text NOT NULL,
+  `firmante` varchar(10) NOT NULL DEFAULT 'paciente',
+  `acudiente_nombre` varchar(120) DEFAULT NULL,
+  `acudiente_documento` varchar(30) DEFAULT NULL,
+  `acudiente_parentesco` varchar(60) DEFAULT NULL,
+  `estado` varchar(15) NOT NULL DEFAULT 'pendiente',
+  `fecha_creacion` datetime NOT NULL DEFAULT current_timestamp(),
+  `fecha_respuesta` datetime DEFAULT NULL,
+  `ip_respuesta` varchar(45) DEFAULT NULL,
+  `observacion` varchar(255) DEFAULT NULL,
+  `huella` char(64) DEFAULT NULL,
+  PRIMARY KEY (`id_consentimiento`),
+  KEY `idx_cons_paciente` (`id_paciente_usuario`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+ALTER TABLE `usuario`
+  ADD COLUMN `totp_secreto` varchar(64) DEFAULT NULL,
+  ADD COLUMN `totp_activo` tinyint(1) NOT NULL DEFAULT 0,
+  ADD COLUMN `totp_ultimo_paso` bigint(20) DEFAULT NULL;
+
+ALTER TABLE `medicamento`
+  ADD COLUMN `stock` int(11) NOT NULL DEFAULT 0,
+  ADD COLUMN `stock_minimo` int(11) NOT NULL DEFAULT 10,
+  ADD COLUMN `lote` varchar(40) DEFAULT NULL,
+  ADD COLUMN `fecha_vencimiento` date DEFAULT NULL;
+
+-- Inventario de demostración
+UPDATE `medicamento` SET `stock` = 120, `lote` = 'DEMO-2026', `fecha_vencimiento` = '2028-12-31';
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;

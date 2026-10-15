@@ -77,6 +77,26 @@ if (isset($_SESSION['flash_medico'])) {
     unset($_SESSION['flash_medico']);
 }
 
+// Resultados, consentimientos y notas aclaratorias
+asegurarEsquemaHistoriaComplementos($conexion);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['accion'] ?? '', ['nota_aclaratoria', 'crear_consentimiento', 'consentimiento_fisico', 'revisar_resultado'], true)) {
+    $acc = $_POST['accion'];
+    $volverA = 'medico.php?page=historiaPage&historia=' . (int) ($_POST['id_paciente'] ?? 0);
+    if ($acc === 'nota_aclaratoria') {
+        $r = agregarNotaAclaratoria($conexion, (int) ($_POST['id_consulta'] ?? 0), $idUsuario, $nombreMedicoCompleto, (string) ($_POST['texto'] ?? ''));
+        $volverA = 'medico.php?page=historialesPage';
+    } elseif ($acc === 'crear_consentimiento') {
+        $r = crearConsentimiento($conexion, (int) ($_POST['id_paciente'] ?? 0), $idUsuario, $nombreMedicoCompleto, $_POST);
+    } elseif ($acc === 'consentimiento_fisico') {
+        $r = responderConsentimiento($conexion, (int) ($_POST['id_consentimiento'] ?? 0), $idUsuario, 'medico', 'firmado_fisico');
+    } else {
+        $r = revisarResultadoOrden($conexion, (int) ($_POST['id_orden'] ?? 0), $idUsuario, $nombreMedicoCompleto, (string) ($_POST['comentario'] ?? ''));
+    }
+    $_SESSION['flash_medico'] = ($r['ok'] ? '✅ ' : '❌ ') . $r['msg'];
+    header('Location: ' . $volverA);
+    exit;
+}
+
 // Registrar la consulta: historia clínica estructurada y firmada (ver historia_clinica_servicio.php)
 $formPrevio = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'guardar_diagnostico') {
@@ -232,7 +252,8 @@ if ($citaDiagnostico && !empty($citaDiagnostico['id_usuario']) && $_SERVER['REQU
 // ---------- Historia clínica (solo pacientes que este médico atiende) ----------
 $misPacientesHistoria = fetchAll($conexion, "SELECT DISTINCT c.id_usuario, c.nombre FROM cita c WHERE c.id_usuario IS NOT NULL AND c.estado <> 'cancelada' AND c.id_medico_usuario = $idUsuario ORDER BY c.nombre");
 $fichaHistoria = null;
-$antecedentesHistoria = $signosHistoria = $consultasHistoria = [];
+$antecedentesHistoria = $signosHistoria = $consultasHistoria = $ordenesHistoria = $consentimientosHistoria = [];
+$resultadosPendientesRevision = resultadosPorRevisar($conexion, $idUsuario);
 if (!empty($_GET['historia'])) {
     $idHist = (int) $_GET['historia'];
     $pageRedirect = 'historiaPage';
@@ -241,6 +262,8 @@ if (!empty($_GET['historia'])) {
         $antecedentesHistoria = obtenerAntecedentes($conexion, $idHist);
         $signosHistoria = historialSignos($conexion, $idHist, 12);
         $consultasHistoria = consultasDePaciente($conexion, $idHist);
+        $ordenesHistoria = ordenesDePaciente($conexion, $idHist);
+        $consentimientosHistoria = consentimientosDePaciente($conexion, $idHist);
         registrarAuditoria($conexion, 'historia_vista', 'Consultó la historia clínica de ' . ($fichaHistoria['nombre'] ?? '') . ' ' . ($fichaHistoria['apellido'] ?? ''), 'usuario', $idHist);
     } else {
         registrarAuditoria($conexion, 'historia_vista', "Intento DENEGADO de ver la historia del usuario #{$idHist} (sin relación de atención)", 'usuario', $idHist);
@@ -426,6 +449,14 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                 <div id="dashboardPage" class="page-section active">
                     <h2 class="mb-1">Hola, Dr(a). <?php echo htmlspecialchars($nombreMedicoCompleto); ?></h2>
                     <p class="text-muted">Su agenda de hoy y los pacientes que esperan en sala</p>
+                    <?php if ($resultadosPendientesRevision): ?>
+                    <div class="alert alert-info">
+                        <strong><i class="bi bi-clipboard2-data"></i> <?php echo count($resultadosPendientesRevision); ?> resultado(s) de exámenes por revisar:</strong>
+                        <?php foreach (array_slice($resultadosPendientesRevision, 0, 5) as $rp): ?>
+                            <a class="d-block small" href="?historia=<?php echo (int) $rp['id_paciente_usuario']; ?>"><?php echo htmlspecialchars(($rp['paciente'] ?? '') . ' — ' . $rp['descripcion']); ?></a>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
                     <div class="row mt-3 g-3">
                         <div class="col-md-3">
                             <div class="card stat-card bg-success text-white">
@@ -646,6 +677,84 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                             </div>
                             <div class="col-lg-8">
                                 <div class="card mb-3">
+                                    <div class="card-header"><i class="bi bi-clipboard2-data me-2"></i>Exámenes y resultados (<?php echo count($ordenesHistoria); ?>)</div>
+                                    <?php if ($ordenesHistoria): ?>
+                                    <div class="list-group list-group-flush">
+                                        <?php foreach ($ordenesHistoria as $o): ?>
+                                        <div class="list-group-item">
+                                            <div class="d-flex justify-content-between flex-wrap gap-2">
+                                                <strong><?php echo htmlspecialchars($o['descripcion']); ?></strong>
+                                                <?php if ($o['estado'] !== 'resultado'): ?><span class="badge bg-warning text-dark">Pendiente de resultado</span>
+                                                <?php elseif ($o['fecha_revision']): ?><span class="badge bg-success">Revisado</span>
+                                                <?php else: ?><span class="badge bg-info text-dark">Resultado por revisar</span><?php endif; ?>
+                                            </div>
+                                            <small class="text-muted">Ordenado <?php echo date('d/m/Y', strtotime($o['fecha_firma'])); ?> por <?php echo htmlspecialchars($o['firmado_por']); ?></small>
+                                            <?php if ($o['estado'] === 'resultado'): ?>
+                                                <?php if ($o['resultado_texto']): ?><p class="small mb-1 mt-1" style="white-space:pre-line"><?php echo htmlspecialchars($o['resultado_texto']); ?></p><?php endif; ?>
+                                                <?php if ($o['resultado_archivo']): ?><a class="btn btn-sm btn-outline-primary mt-1" href="ver_resultado.php?id=<?php echo (int) $o['id_orden']; ?>" target="_blank" rel="noopener"><i class="bi bi-file-earmark-medical"></i> Ver resultado</a><?php endif; ?>
+                                                <?php if ($o['fecha_revision']): ?>
+                                                    <p class="small text-muted mb-0 mt-1">Revisado por <?php echo htmlspecialchars($o['revisado_por']); ?><?php echo $o['comentario_medico'] ? ': ' . htmlspecialchars($o['comentario_medico']) : ''; ?></p>
+                                                <?php else: ?>
+                                                    <form method="POST" class="d-flex gap-2 mt-2">
+                                                        <input type="hidden" name="accion" value="revisar_resultado">
+                                                        <input type="hidden" name="id_orden" value="<?php echo (int) $o['id_orden']; ?>">
+                                                        <input type="hidden" name="id_paciente" value="<?php echo (int) $fichaHistoria['id_usuario']; ?>">
+                                                        <input type="text" name="comentario" class="form-control form-control-sm" maxlength="500" placeholder="Interpretación para el paciente (opcional)">
+                                                        <button class="btn btn-sm btn-success text-nowrap">Marcar revisado</button>
+                                                    </form>
+                                                <?php endif; ?>
+                                            <?php endif; ?>
+                                        </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    <?php else: ?><div class="panel-empty"><i class="bi bi-clipboard2"></i><p>Sin exámenes ordenados.</p></div><?php endif; ?>
+                                </div>
+
+                                <div class="card mb-3">
+                                    <div class="card-header"><i class="bi bi-pen me-2"></i>Consentimientos informados (<?php echo count($consentimientosHistoria); ?>)</div>
+                                    <div class="list-group list-group-flush">
+                                        <?php foreach ($consentimientosHistoria as $ci): ?>
+                                        <div class="list-group-item d-flex justify-content-between flex-wrap gap-2 align-items-center">
+                                            <div><strong><?php echo htmlspecialchars($ci['procedimiento']); ?></strong><br><small class="text-muted"><?php echo date('d/m/Y', strtotime($ci['fecha_creacion'])); ?> · <?php echo htmlspecialchars($ci['nombre_medico']); ?></small></div>
+                                            <div class="d-flex gap-2 align-items-center flex-wrap">
+                                                <?php echo badgeConsentimiento($ci['estado']); ?>
+                                                <a class="btn btn-sm btn-outline-primary" href="documento.php?tipo=consentimiento&amp;id=<?php echo (int) $ci['id_consentimiento']; ?>" target="_blank" rel="noopener">Ver / imprimir</a>
+                                                <?php if ($ci['estado'] === 'pendiente' && (int) $ci['id_medico_usuario'] === $idUsuario): ?>
+                                                <form method="POST" onsubmit="return confirm('¿El paciente (o su acudiente) firmó el documento impreso en el consultorio?')">
+                                                    <input type="hidden" name="accion" value="consentimiento_fisico">
+                                                    <input type="hidden" name="id_consentimiento" value="<?php echo (int) $ci['id_consentimiento']; ?>">
+                                                    <input type="hidden" name="id_paciente" value="<?php echo (int) $fichaHistoria['id_usuario']; ?>">
+                                                    <button class="btn btn-sm btn-outline-success">Firmado en consultorio</button>
+                                                </form>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                    <div class="card-body">
+                                        <details>
+                                            <summary class="fw-semibold">Nuevo consentimiento informado</summary>
+                                            <form method="POST" class="row g-2 mt-2">
+                                                <input type="hidden" name="accion" value="crear_consentimiento">
+                                                <input type="hidden" name="id_paciente" value="<?php echo (int) $fichaHistoria['id_usuario']; ?>">
+                                                <div class="col-12"><label class="form-label small">Procedimiento</label><input type="text" name="procedimiento" class="form-control form-control-sm" maxlength="200" required placeholder="Ej: Infiltración de rodilla"></div>
+                                                <div class="col-md-6"><label class="form-label small">En qué consiste</label><textarea name="descripcion" class="form-control form-control-sm" rows="2" required></textarea></div>
+                                                <div class="col-md-6"><label class="form-label small">Riesgos</label><textarea name="riesgos" class="form-control form-control-sm" rows="2" required></textarea></div>
+                                                <div class="col-md-6"><label class="form-label small">Beneficios</label><textarea name="beneficios" class="form-control form-control-sm" rows="2" required></textarea></div>
+                                                <div class="col-md-6"><label class="form-label small">Alternativas</label><textarea name="alternativas" class="form-control form-control-sm" rows="2" required></textarea></div>
+                                                <?php if ($fichaHistoria['edad'] !== null && $fichaHistoria['edad'] < 18): ?>
+                                                <div class="col-12"><div class="alert alert-warning small py-2 mb-0">Paciente menor de edad: firma su acudiente.</div></div>
+                                                <div class="col-md-5"><input type="text" name="acudiente_nombre" class="form-control form-control-sm" placeholder="Nombre del acudiente" required></div>
+                                                <div class="col-md-4"><input type="text" name="acudiente_documento" class="form-control form-control-sm" placeholder="Documento" required></div>
+                                                <div class="col-md-3"><input type="text" name="acudiente_parentesco" class="form-control form-control-sm" placeholder="Parentesco" required></div>
+                                                <?php endif; ?>
+                                                <div class="col-12"><button class="btn btn-sm btn-success">Crear y enviar al paciente</button></div>
+                                            </form>
+                                        </details>
+                                    </div>
+                                </div>
+
+                                <div class="card mb-3">
                                     <div class="card-header"><i class="bi bi-activity me-2"></i>Evolución de signos vitales</div>
                                     <?php if ($signosHistoria): ?>
                                         <div class="table-responsive"><table class="table table-sm mb-0 align-middle">
@@ -720,7 +829,15 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                                             <td class="text-nowrap"><?php echo date('d/m/Y', strtotime($cons['fecha_consulta'])); ?><br><small class="text-muted"><?php echo date('g:i a', strtotime($cons['fecha_consulta'])); ?></small></td>
                                             <td><?php echo htmlspecialchars($nomPac); ?></td>
                                             <td><?php echo htmlspecialchars(mb_strimwidth((string) $dxCons, 0, 90, '…')); ?></td>
-                                            <td><div class="doc-links"><?php echo enlacesDocumentosConsulta($conexion, (int) $cons['id_consulta']); ?></div></td>
+                                            <td><div class="doc-links"><?php echo enlacesDocumentosConsulta($conexion, (int) $cons['id_consulta']); ?></div>
+                                                <?php if (!empty($cons['dx_principal_codigo'])): ?>
+                                                <details class="mt-1"><summary class="small">Nota aclaratoria</summary>
+                                                    <form method="POST" class="mt-1"><input type="hidden" name="accion" value="nota_aclaratoria"><input type="hidden" name="id_consulta" value="<?php echo (int) $cons['id_consulta']; ?>">
+                                                        <textarea name="texto" class="form-control form-control-sm" rows="2" minlength="10" required placeholder="La consulta firmada no se modifica: la nota queda anexa con fecha y firma."></textarea>
+                                                        <button class="btn btn-sm btn-outline-primary mt-1">Agregar nota</button></form>
+                                                </details>
+                                                <?php endif; ?>
+                                            </td>
                                         </tr>
                                     <?php endforeach; ?>
                                     </tbody>
@@ -1045,6 +1162,7 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                 <!-- Permisos y novedades de agenda -->
                 <div id="permisosPage" class="page-section">
                     <h2 class="mb-1"><i class="bi bi-calendar-x"></i> Permisos y novedades de agenda</h2>
+                    <p class="mb-2"><span class="badge bg-light text-dark border"><i class="bi bi-clock"></i> Mi horario: <?php echo htmlspecialchars(textoHorarioMedico($conexion, $idUsuario)); ?></span></p>
                     <p class="text-muted">Solicite permisos con mínimo <?php echo DIAS_PREAVISO_PERMISO; ?> días de anticipación. La coordinación médica los aprueba; al aprobarse, Recepción mueve sus citas de ese horario y los pacientes aceptan el nuevo turno. Incapacidades y calamidades: avise directamente a la coordinación.</p>
                     <div class="row g-3">
                         <div class="col-lg-5">

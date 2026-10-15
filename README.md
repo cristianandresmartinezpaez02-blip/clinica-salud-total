@@ -11,18 +11,18 @@ En una clínica privada cada cita tiene un **turno reservado con un médico**. L
 ```
 Paciente solicita (en línea) ─▶ PENDIENTE ─▶ Recepción asigna médico y consultorio ─▶ CONFIRMADA
 Recepción agenda (presencial / teléfono) ────────────────────────────────────────────▶ CONFIRMADA
-CONFIRMADA ─▶ el paciente llega (recepción) ─▶ EN SALA ─▶ el médico registra la consulta ─▶ ATENDIDA
+CONFIRMADA ─▶ el paciente llega y paga la consulta (recepción) ─▶ EN SALA ─▶ el médico registra la consulta ─▶ ATENDIDA
 CONFIRMADA ─▶ NO ASISTIÓ  ·  PENDIENTE / CONFIRMADA ─▶ CANCELADA
 ```
 
 | Rol | Qué hace |
 |---|---|
 | **Paciente** | Crea su cuenta (datos, correo, foto de perfil y foto del documento). Cuando el administrador la aprueba, ve **qué días hay cupo** y solicita citas eligiendo especialidad, día y turno libre; **acepta o rechaza los cambios de horario** que le propone Recepción o elige él mismo otro turno libre; ve sus citas, historia, fórmulas, órdenes e incapacidades; puede cancelar sus citas y cambiar su contraseña. |
-| **Recepción** | Dueña de la agenda: confirma las solicitudes en línea asignando médico y consultorio, agenda citas presenciales y telefónicas (busca al paciente o lo registra en el momento), marca llegadas, inasistencias y cancelaciones. Cambia el día y la hora de las citas **proponiendo el nuevo horario al paciente** (o aplicándolo de inmediato si el paciente ya aceptó por teléfono) y atiende la bandeja **Por reprogramar**. |
-| **Enfermería** | Hace el **triaje** de los pacientes en sala: signos vitales (presión, frecuencias, temperatura, saturación, peso, talla, IMC, glucometría, dolor) y antecedentes (alergias, enfermedades crónicas, medicamentos, cirugías, grupo sanguíneo). Valida rangos y alerta valores anormales. |
-| **Médico** | Ve solo su agenda y la cola de pacientes en sala. Al atender recibe el triaje, las **alergias resaltadas**, los antecedentes y las consultas anteriores, y diligencia la **historia clínica estructurada** (ver abajo), que firma electrónicamente. Solicita **permisos** con mínimo 7 días de anticipación. |
-| **Farmacia** | Despacha las fórmulas de las consultas y factura. |
-| **Administrador (coordinación)** | Crea las cuentas del personal, aprueba o rechaza la identidad de los pacientes, **aprueba o rechaza los permisos médicos** y registra novedades sin preaviso (incapacidades, calamidades), supervisa la agenda, consulta **reportes** y la **auditoría** de accesos. |
+| **Recepción** | Cobra la consulta al registrar la llegada (efectivo, tarjeta o transferencia) y entrega el recibo. Dueña de la agenda: confirma las solicitudes en línea asignando médico y consultorio, agenda citas presenciales y telefónicas (busca al paciente o lo registra en el momento), marca llegadas, inasistencias y cancelaciones. Cambia el día y la hora de las citas **proponiendo el nuevo horario al paciente** (o aplicándolo de inmediato si el paciente ya aceptó por teléfono) y atiende la bandeja **Por reprogramar**. |
+| **Enfermería** | Hace el **triaje** de los pacientes en sala: signos vitales (presión, frecuencias, temperatura, saturación, peso, talla, IMC, glucometría, dolor) y antecedentes (alergias, enfermedades crónicas, medicamentos, cirugías, grupo sanguíneo). Valida rangos y alerta valores anormales. Carga los **resultados de laboratorio e imágenes** (texto, PDF o foto). |
+| **Médico** | Ve solo su agenda y la cola de pacientes en sala. Al atender recibe el triaje, las **alergias resaltadas**, los antecedentes y las consultas anteriores, y diligencia la **historia clínica estructurada** (ver abajo), que firma electrónicamente. Revisa los **resultados de exámenes**, crea **consentimientos informados**, agrega **notas aclaratorias** a consultas firmadas y solicita **permisos** con mínimo 7 días de anticipación. |
+| **Farmacia** | Despacha las fórmulas y factura con el precio del sistema; maneja el **inventario** (entradas con lote y vencimiento, ajustes, alertas de agotados, bajo mínimo y por vencer). No despacha sin existencias ni productos vencidos. |
+| **Administrador (coordinación)** | Crea las cuentas del personal, aprueba o rechaza la identidad de los pacientes, **aprueba o rechaza los permisos médicos** y registra novedades sin preaviso (incapacidades, calamidades), define el **horario de cada médico** y las **tarifas**, revisa la **caja** (anula pagos con motivo), supervisa la agenda, consulta **reportes** y la **auditoría** de accesos. |
 
 ### Historia clínica (registro de consulta externa)
 Organizada como en una clínica (formato SOAP):
@@ -42,6 +42,18 @@ Recepción propone nuevo día/hora (el turno queda apartado) ─▶ el paciente 
 ```
 - Las incapacidades y calamidades las registra la coordinación sin preaviso y quedan aprobadas.
 - El paciente también puede elegir por su cuenta otro turno libre (con 24 horas de anticipación, o en cualquier momento si su cita quedó por reprogramar).
+- Si el paciente no responde una propuesta en **48 horas**, vence: el turno apartado se libera y Recepción recibe el aviso para llamarlo.
+- Cada médico puede tener su **horario semanal** (por ejemplo, solo mañanas). Si cambia, sus citas que queden por fuera pasan a «Por reprogramar».
+
+### Resultados, consentimientos y notas aclaratorias
+- **Resultados:** las órdenes de laboratorio e imágenes quedan pendientes hasta que Enfermería carga el resultado; el médico que las ordenó lo revisa y puede dejar un comentario para el paciente, que ve todo en su portal. Los archivos se guardan fuera del acceso público y solo los abren el paciente, sus médicos, enfermería y administración.
+- **Consentimiento informado:** el médico describe el procedimiento, riesgos, beneficios y alternativas. El paciente lo acepta en su portal (queda fecha, IP y código) o lo firma en papel en el consultorio; puede revocarlo. En menores de edad firma el acudiente.
+- **Notas aclaratorias:** la consulta firmada nunca se modifica; el médico que la firmó le agrega notas con fecha y código, que aparecen en la historia impresa.
+
+### Caja
+- Cada especialidad tiene una tarifa (la define el administrador). Recepción cobra al registrar la llegada; sin pago el paciente no pasa a sala.
+- El valor sale siempre de la tarifa (no del formulario). Solo el administrador anula un recibo, con motivo.
+- El paciente ve sus recibos en **Mis facturas**.
 
 ### Auditoría
 - La historia es única por paciente; un médico solo la abre si tiene o tuvo una cita asignada con él. Los intentos sin relación de atención se bloquean y quedan marcados en la auditoría.
@@ -50,7 +62,7 @@ Recepción propone nuevo día/hora (el turno queda apartado) ─▶ el paciente 
 - Los paneles cierran la sesión tras 30 minutos sin actividad (`app.minutos_inactividad`).
 
 ### Reglas de la agenda
-- Turnos de 30 minutos. Lunes a viernes 7:00 a.m. – 6:00 p.m., sábados 8:00 a.m. – 1:00 p.m., domingos sin consulta.
+- Turnos de 30 minutos. Lunes a viernes 7:00 a.m. – 6:00 p.m., sábados 8:00 a.m. – 1:00 p.m., domingos sin consulta (cada médico puede tener un horario menor).
 - La agenda es por médico: en cada turno una especialidad recibe tantos pacientes como médicos suyos estén trabajando (sin permiso aprobado). Cada médico tiene un cupo diario (16 citas en especialidades básicas, 8 en las demás).
 - Solo se agendan especialidades con al menos un médico activo; al confirmar o mover una cita se valida que el médico esté libre.
 - Un paciente no puede tener dos citas a la misma hora ni más de 3 solicitudes pendientes.
@@ -66,7 +78,7 @@ Recepción propone nuevo día/hora (el turno queda apartado) ─▶ el paciente 
 
 Si instala el proyecto en otra carpeta, cambie `app.base_url` en `config/config.local.php` y la ruta de `ErrorDocument` en `.htaccess`.
 
-**¿Ya tenía una base de datos anterior?** El sistema agrega solo el rol Recepción y las columnas nuevas de la agenda. Como ahora se ingresa con **correo**, asigne un correo a cada usuario antiguo desde *Administrador → Usuarios → Editar*.
+**¿Ya tenía una base de datos anterior?** El sistema crea solo las tablas y columnas nuevas al abrir los paneles. El inventario de farmacia empieza en 0: registre las existencias en *Farmacia → Inventario → Registrar entrada*. Como ahora se ingresa con **correo**, asigne un correo a cada usuario antiguo desde *Administrador → Usuarios → Editar*.
 
 ## Recordatorios automáticos
 
@@ -76,6 +88,23 @@ El script `tareas/recordatorios.php` avisa por el portal y por correo a los paci
 Programa:   C:\xampp\php\php.exe
 Argumentos: C:\xampp\htdocs\proyecto_productivo\tareas\recordatorios.php
 ```
+
+## Copias de seguridad
+
+El script `tareas/respaldo.php` guarda la base de datos (comprimida) y los archivos subidos en la carpeta `respaldos/` (bloqueada para la web) y conserva los últimos 14. Prográmelo a diario igual que los recordatorios:
+
+```
+Programa:   C:\xampp\php\php.exe
+Argumentos: C:\xampp\htdocs\proyecto_productivo\tareas\respaldo.php
+```
+
+Copie periódicamente esa carpeta a un disco externo o a la nube. Para restaurar: importe el `.sql.gz` en phpMyAdmin y descomprima el `.zip` en `log_in/uploads`. El panel del administrador muestra la fecha del último respaldo.
+
+## Publicar en un servidor real
+
+1. Instale un certificado SSL (por ejemplo Let's Encrypt) y en `config/config.local.php` ponga `'forzar_https' => true` y `'debug' => false`.
+2. Cambie las contraseñas de las cuentas de demostración y active la **verificación en dos pasos** del administrador (*Configuración*).
+3. Programe `recordatorios.php` y `respaldo.php`.
 
 ## Cuentas de demostración
 
@@ -114,13 +143,17 @@ Imagenes/          Imágenes del sitio
 - Ingreso con correo y contraseña; contraseñas con `password_hash` (las antiguas en texto plano se convierten al iniciar sesión).
 - Recuperación de contraseña por correo con enlace de un solo uso que vence en 60 minutos (solo se guarda el hash del token).
 - Límite de 5 intentos fallidos de inicio de sesión.
+- **Verificación en dos pasos** opcional para todas las cuentas (Google Authenticator, Microsoft Authenticator o Authy): códigos de un solo uso, máximo 5 intentos; el panel del administrador avisa mientras no esté activa.
+- HTTPS obligatorio y HSTS al activar `app.forzar_https`.
+- Respaldos diarios automáticos de la base de datos y los archivos.
 - Consultas preparadas (`mysqli` + `bind_param`).
 - Sesión con cookies `HttpOnly` y `SameSite=Strict`, regeneración de ID al iniciar sesión.
 - Protección CSRF en el ingreso y en todos los formularios y acciones de los paneles.
 - Formularios públicos protegidos contra spam (campo trampa, tiempo mínimo firmado y límite de envíos).
 - El registro público solo crea pacientes y exige aprobación del administrador; el personal lo crea un administrador.
 - Correos únicos en todo el sistema; el documento verificado no se puede cambiar desde el portal.
-- Fotos de perfil y de documentos fuera del acceso público, visibles solo para administración y recepción.
+- Fotos de perfil y de documentos fuera del acceso público, visibles solo para administración y recepción. Resultados de exámenes también protegidos (solo paciente, sus médicos, enfermería y administración).
+- Documentos (historia, fórmula, órdenes, incapacidad, consentimiento, recibo) con botón **Descargar PDF**.
 - Cada médico ve solo sus citas y sus avisos; cada paciente solo sus citas.
 - Credenciales fuera del código fuente (`config/config.local.php`). Zona horaria de Colombia en PHP y MySQL.
 

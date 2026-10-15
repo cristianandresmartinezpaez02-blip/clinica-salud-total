@@ -6,7 +6,7 @@ DirectoryIndex index.php
 ErrorDocument 404 /proyecto_productivo/404.php
 
 # Bloquear carpetas y archivos internos (configuración, respaldos de BD, git, docs)
-RedirectMatch 404 ^/(.*/)?(config|base_datos|includes|tareas|\.git)(/|$)
+RedirectMatch 404 ^/(.*/)?(config|base_datos|includes|tareas|respaldos|\.git)(/|$)
 <FilesMatch "\.(sql|md|log|ini|example|lock)$">
     Require all denied
 </FilesMatch>

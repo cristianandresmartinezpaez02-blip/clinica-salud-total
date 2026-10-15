@@ -10,6 +10,7 @@ require_once __DIR__ . '/conexion/rutas.php';
 require_once __DIR__ . '/conexion/auth_servicio.php';
 require_once __DIR__ . '/conexion/notificaciones_servicio.php';
 require_once __DIR__ . '/conexion/clinica_servicio.php';
+require_once __DIR__ . '/conexion/dos_pasos_servicio.php';
 require_once __DIR__ . '/includes/seguridad_panel.php'; // csrfToken() / csrfValido()
 require_once __DIR__ . '/../includes/iconos.php';
 
@@ -24,9 +25,36 @@ if (isset($_SESSION['id_usuario'], $_SESSION['rol']) && $_SERVER['REQUEST_METHOD
     exit;
 }
 
+/** Abre la sesión del usuario y lo lleva a su panel. */
+function completarIngreso(mysqli $conexion, array $user, string $siguiente): void
+{
+    reiniciarIntentosLogin();
+    session_regenerate_id(true);
+    unset($_SESSION['dos_pasos']);
+    $_SESSION['id_usuario'] = (int) $user['id_usuario'];
+    $_SESSION['nombre'] = $user['nombre'];
+    $_SESSION['rol'] = $user['rol'];
+    $_SESSION['identidad_verificada'] = true;
+    $_SESSION['ultima_actividad'] = time();
+    registrarAuditoria($conexion, 'login', 'Ingreso correcto');
+    header('Location: ' . ($user['rol'] === 'paciente' && $siguiente ? url_agendar_cita() : rutaPanelPorRol($user['rol'])));
+    exit;
+}
+
 $error = '';
 $success = '';
 $tabActiva = isset($_GET['registro']) ? 'registro' : 'login';
+asegurarEsquemaDosPasos($conexion);
+// Segundo paso pendiente (contraseña ya validada); vence a los 5 minutos
+$pasoCodigo = !empty($_SESSION['dos_pasos']) && (time() - (int) $_SESSION['dos_pasos']['t']) < 300;
+if (!empty($_SESSION['dos_pasos']) && !$pasoCodigo) {
+    unset($_SESSION['dos_pasos']);
+    $error = 'El tiempo para escribir el código terminó. Ingrese de nuevo.';
+}
+if (isset($_GET['cancelar_codigo'])) {
+    unset($_SESSION['dos_pasos']);
+    $pasoCodigo = false;
+}
 if (isset($_GET['salio'])) {
     $success = 'Cerró sesión correctamente.';
 }
@@ -108,6 +136,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrfValido($_POST['_csrf'] ?? null
         }
     }
 
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'dos_pasos') {
+    // ------------------------ SEGUNDO PASO: CÓDIGO DE LA APP ------------------------
+    if (!$pasoCodigo) {
+        $error = $error ?: 'Ingrese de nuevo con su correo y contraseña.';
+    } else {
+        $idPend = (int) $_SESSION['dos_pasos']['id'];
+        if (verificarCodigoUsuario($conexion, $idPend, (string) ($_POST['codigo'] ?? ''))) {
+            $user = $conexion->query('SELECT id_usuario, nombre, rol FROM usuario WHERE id_usuario = ' . $idPend)->fetch_assoc();
+            completarIngreso($conexion, $user, (string) $_SESSION['dos_pasos']['siguiente']);
+        }
+        $_SESSION['dos_pasos']['intentos'] = (int) $_SESSION['dos_pasos']['intentos'] + 1;
+        registrarAuditoria($conexion, 'login_fallido', 'Código de verificación en dos pasos incorrecto', 'usuario', $idPend, ['id_usuario' => $idPend, 'rol' => null, 'nombre' => null]);
+        if ($_SESSION['dos_pasos']['intentos'] >= TOTP_MAX_INTENTOS) {
+            unset($_SESSION['dos_pasos']);
+            registrarIntentoFallidoLogin();
+            $pasoCodigo = false;
+            $error = 'Demasiados códigos incorrectos. Ingrese de nuevo con su contraseña.';
+        } else {
+            $error = 'El código no es correcto. Escriba el código actual de su aplicación.';
+        }
+    }
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ---------------------------- INICIO DE SESIÓN ----------------------------
     $correo = normalizarCorreo($_POST['correo'] ?? '');
@@ -123,17 +172,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !csrfValido($_POST['_csrf'] ?? null
         $error = 'Correo o contraseña incorrectos.';
     } elseif ($msgBloqueo = puedeIniciarSesion($conexion, $user)) {
         $error = $msgBloqueo;
-    } else {
-        reiniciarIntentosLogin();
+    } elseif (!empty(estadoDosPasos($conexion, (int) $user['id_usuario'])['totp_activo'])) {
+        // Contraseña correcta: falta el código de la aplicación autenticadora
         session_regenerate_id(true);
-        $_SESSION['id_usuario'] = (int) $user['id_usuario'];
-        $_SESSION['nombre'] = $user['nombre'];
-        $_SESSION['rol'] = $user['rol'];
-        $_SESSION['identidad_verificada'] = true;
-        $_SESSION['ultima_actividad'] = time();
-        registrarAuditoria($conexion, 'login', 'Ingreso correcto');
-        header('Location: ' . ($user['rol'] === 'paciente' && $siguiente ? url_agendar_cita() : rutaPanelPorRol($user['rol'])));
-        exit;
+        $_SESSION['dos_pasos'] = ['id' => (int) $user['id_usuario'], 'siguiente' => $siguiente, 't' => time(), 'intentos' => 0];
+        $pasoCodigo = true;
+    } else {
+        completarIngreso($conexion, $user, $siguiente);
     }
 }
 
@@ -194,6 +239,19 @@ $old = fn(string $campo): string => e($_POST[$campo] ?? '');
         <div class="auth__alert auth__alert--ok" role="status"><i class="bi bi-check-circle-fill"></i><span><?php echo e($success); ?></span></div>
       <?php endif; ?>
 
+      <?php if ($pasoCodigo): ?>
+      <form method="POST" class="auth__panel is-active" autocomplete="off">
+        <input type="hidden" name="_csrf" value="<?php echo e(csrfToken()); ?>">
+        <input type="hidden" name="accion" value="dos_pasos">
+        <p><i class="bi bi-shield-lock"></i> Su cuenta tiene verificación en dos pasos. Escriba el código de 6 dígitos de su aplicación autenticadora.</p>
+        <div class="auth__field">
+          <label for="codigo">Código de verificación</label>
+          <div class="auth__input"><i class="bi bi-123"></i><input id="codigo" type="text" name="codigo" inputmode="numeric" pattern="[0-9 ]{6,7}" maxlength="7" required autofocus autocomplete="one-time-code" placeholder="000000"></div>
+        </div>
+        <button type="submit" class="auth__submit"><i class="bi bi-check2-circle"></i> Verificar</button>
+        <p class="auth__hint"><a href="log_in.php?cancelar_codigo=1">Volver</a></p>
+      </form>
+      <?php else: ?>
       <div class="auth__tabs" role="tablist">
         <button type="button" role="tab" id="tab-login" aria-controls="panel-login" aria-selected="<?php echo $tabActiva === 'login' ? 'true' : 'false'; ?>" class="<?php echo $tabActiva === 'login' ? 'is-active' : ''; ?>" data-tab="login">Ingresar</button>
         <button type="button" role="tab" id="tab-registro" aria-controls="panel-registro" aria-selected="<?php echo $tabActiva === 'registro' ? 'true' : 'false'; ?>" class="<?php echo $tabActiva === 'registro' ? 'is-active' : ''; ?>" data-tab="registro">Crear cuenta</button>
@@ -314,6 +372,7 @@ $old = fn(string $campo): string => e($_POST[$campo] ?? '');
           <p class="auth__hint">Revisamos cada documento manualmente para proteger su historia clínica.</p>
         </form>
       </section>
+      <?php endif; ?>
     </div>
   </main>
 </div>

@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/notificaciones_servicio.php';
 require_once __DIR__ . '/medicamentos_catalogo.php';
+require_once __DIR__ . '/inventario_servicio.php';
 
 function asegurarEsquemaFarmacia(mysqli $conexion): void
 {
@@ -34,6 +35,7 @@ function asegurarEsquemaFarmacia(mysqli $conexion): void
     }
 
     sembrarMedicamentosCatalogo($conexion);
+    asegurarEsquemaInventario($conexion);
 }
 
 function sembrarMedicamentosCatalogo(mysqli $conexion): void
@@ -177,18 +179,27 @@ function notificarFarmaceutaDiagnostico(mysqli $conexion, int $idConsulta, strin
     insertarNotificacionRol($conexion, 'farmacia', $msg, 'diagnostico_farmacia');
 }
 
-function crearFacturaFarmacia(mysqli $conexion, int $idConsulta, int $idFarmaceuta, array $items, string $observaciones = ''): int|false
+function crearFacturaFarmacia(mysqli $conexion, int $idConsulta, int $idFarmaceuta, array $items, string $observaciones = '', ?string &$error = null): int|false
 {
     asegurarEsquemaFarmacia($conexion);
     $consulta = obtenerConsultaPorId($conexion, $idConsulta);
     if (!$consulta) {
+        $error = 'La consulta no existe.';
         return false;
     }
 
     $existe = $conexion->query("SELECT id_factura FROM factura WHERE id_consulta = $idConsulta LIMIT 1");
     if ($existe && $existe->num_rows > 0) {
+        $error = 'Ya existe una factura para esta consulta.';
         return false;
     }
+    // Precios del catálogo y existencias del inventario (no se confía en lo que envíe el formulario)
+    $despacho = prepararItemsDespacho($conexion, $items);
+    if (!$despacho['ok']) {
+        $error = $despacho['msg'];
+        return false;
+    }
+    $items = $despacho['items'];
 
     $total = 0;
     foreach ($items as $it) {
@@ -219,6 +230,9 @@ function crearFacturaFarmacia(mysqli $conexion, int $idConsulta, int $idFarmaceu
         return false;
     }
     $idFactura = (int) $conexion->insert_id;
+    foreach ($items as $it) {
+        moverInventario($conexion, (int) $it['id_medicamento'], 'salida', -(int) $it['cantidad'], "Factura #{$idFactura}");
+    }
 
     foreach ($items as $it) {
         $desc = trim($it['descripcion'] ?? '');

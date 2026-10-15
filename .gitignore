@@ -20,3 +20,8 @@ log_in/uploads/**
 Thumbs.db
 desktop.ini
 .DS_Store
+!log_in/uploads/resultados/
+!log_in/uploads/resultados/.htaccess
+
+# Copias de seguridad (tareas/respaldo.php)
+respaldos/
