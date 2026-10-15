@@ -1,104 +1,96 @@
 <?php
+/**
+ * Solicitud de citas en línea — exclusivo para pacientes registrados y verificados.
+ * La cita queda "pendiente" hasta que Recepción la confirma y asigna médico y consultorio.
+ * Urgencias no se agendan: se atienden 24 horas por llegada directa.
+ */
 require_once __DIR__ . '/../../config/bootstrap.php';
 iniciarSesion();
-ini_set('display_errors', 0);
-error_reporting(E_ALL);
 
 require_once __DIR__ . '/../../log_in/conexion/conexion.php';
-require_once __DIR__ . '/../../log_in/conexion/notificaciones_servicio.php';
+require_once __DIR__ . '/../../log_in/conexion/rutas.php';
+require_once __DIR__ . '/../../log_in/conexion/auth_servicio.php';
+require_once __DIR__ . '/../../log_in/conexion/citas_servicio.php';
+require_once __DIR__ . '/../../log_in/includes/seguridad_panel.php'; // csrfToken() / csrfValido()
 
-asegurarEsquemaNotificaciones($conexion);
-
-$esPacienteLogueado = isset($_SESSION['id_usuario'], $_SESSION['rol']) && $_SESSION['rol'] === 'paciente';
-$idUsuario = $esPacienteLogueado ? (int) $_SESSION['id_usuario'] : null;
-
-$prefill = ['nombre' => '', 'telefono' => '', 'correo' => ''];
-$primerNombre = '';
-
-if ($esPacienteLogueado) {
-    $res = $conexion->query("SELECT nombre, apellido, correo, telefono FROM usuario WHERE id_usuario = $idUsuario LIMIT 1");
-    if ($res && ($u = $res->fetch_assoc())) {
-        $prefill['nombre']   = trim(($u['nombre'] ?? '') . ' ' . ($u['apellido'] ?? ''));
-        $prefill['correo']   = trim($u['correo'] ?? '');
-        $prefill['telefono'] = trim($u['telefono'] ?? '');
-        $primerNombre = trim(explode(' ', $u['nombre'] ?? '')[0]);
-    }
+// Solo pacientes con sesión. Visitantes: a ingresar o crear cuenta. Personal: a su panel.
+if (!isset($_SESSION['id_usuario'], $_SESSION['rol'])) {
+    header('Location: ' . url_login() . '?siguiente=agendar');
+    exit;
+}
+if ($_SESSION['rol'] !== 'paciente') {
+    header('Location: ' . url_publica('log_in/' . rutaPanelPorRol($_SESSION['rol'])));
+    exit;
 }
 
-require_once __DIR__ . '/../../log_in/conexion/especialidades_cita.php';
-require_once __DIR__ . '/../../log_in/conexion/disponibilidad_cita.php';
+asegurarEsquemaCitas($conexion);
+$esPacienteLogueado = true;
+$idUsuario = (int) $_SESSION['id_usuario'];
+
+$stmtU = $conexion->prepare('SELECT nombre, apellido, correo, telefono, tipo_documento, documento FROM usuario WHERE id_usuario = ? LIMIT 1');
+$stmtU->bind_param('i', $idUsuario);
+$stmtU->execute();
+$u = $stmtU->get_result()->fetch_assoc() ?: [];
+$prefill = [
+    'nombre'    => trim(($u['nombre'] ?? '') . ' ' . ($u['apellido'] ?? '')),
+    'correo'    => trim($u['correo'] ?? ''),
+    'telefono'  => trim($u['telefono'] ?? ''),
+    'documento' => trim(($u['tipo_documento'] ?? '') . ' ' . ($u['documento'] ?? '')),
+];
+$primerNombre = trim(explode(' ', $u['nombre'] ?? '')[0]);
 
 $categoriasEspecialidades = obtenerCategoriasEspecialidades();
 $todasEspecialidades = obtenerTodasEspecialidades();
 
+const MAX_SOLICITUDES_PENDIENTES = 3;
+
 $citaExito = null;
 $errorMsg = '';
 
-require_once __DIR__ . '/../../includes/formularios_publicos.php';
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['tipo'] ?? '') === 'cita') {
-    $motivoRechazo = revisarEnvioPublico('cita');
     $datos = [
-        'nombre'   => trim($_POST['nombre'] ?? ''),
-        'telefono' => trim($_POST['telefono'] ?? ''),
-        'correo'   => trim($_POST['correo'] ?? ''),
-        'servicio' => trim($_POST['servicio'] ?? ''),
-        'fecha'    => trim($_POST['fecha'] ?? ''),
-        'hora'     => trim($_POST['hora'] ?? ''),
-        'motivo'   => trim($_POST['motivo'] ?? ''),
+        'id_usuario'     => $idUsuario,
+        'nombre'         => $prefill['nombre'],
+        'correo'         => $prefill['correo'],
+        'telefono'       => $prefill['telefono'],
+        'servicio'       => trim($_POST['servicio'] ?? ''),
+        'fecha'          => trim($_POST['fecha'] ?? ''),
+        'hora'           => trim($_POST['hora'] ?? ''),
+        'motivo'         => trim($_POST['motivo'] ?? ''),
+        'origen'         => 'web',
+        'registrada_por' => 'Paciente (en línea)',
     ];
+    $pendientes = count(array_filter(citasDePaciente($conexion, $idUsuario), fn($c) => ($c['estado'] ?? '') === 'pendiente'));
 
-    if ($motivoRechazo === 'spam') {
-        $errorMsg = 'No pudimos procesar la solicitud. Espere unos segundos e intente de nuevo.';
-    } elseif ($motivoRechazo === 'limite') {
-        $errorMsg = 'Ha enviado demasiadas solicitudes. Intente de nuevo en unos minutos o llámenos.';
-    } elseif ($datos['nombre'] === '' || $datos['correo'] === '' || $datos['servicio'] === '' || $datos['fecha'] === '' || $datos['hora'] === '') {
-        $errorMsg = 'Complete todos los campos obligatorios.';
-    } elseif (!correoValido($datos['correo']) || !textoValido($datos['nombre'], 100) || !textoValido($datos['motivo'], 1000, false)) {
-        $errorMsg = 'Revise el correo electrónico y la longitud de los campos.';
-    } elseif (strtotime($datos['fecha']) < strtotime(date('Y-m-d'))) {
-        $errorMsg = 'La fecha no puede ser anterior a hoy.';
+    if (!csrfValido($_POST['_csrf'] ?? null)) {
+        $errorMsg = 'La página expiró. Vuelva a intentarlo.';
+    } elseif ($datos['servicio'] === '' || $datos['fecha'] === '' || $datos['hora'] === '') {
+        $errorMsg = 'Elija la especialidad, el día y uno de los turnos disponibles.';
+    } elseif (mb_strlen($datos['motivo']) > 1000) {
+        $errorMsg = 'El motivo no puede superar 1000 caracteres.';
+    } elseif ($pendientes >= MAX_SOLICITUDES_PENDIENTES) {
+        $errorMsg = 'Ya tiene ' . $pendientes . ' solicitudes esperando confirmación. Espere la respuesta de recepción antes de solicitar otra.';
     } else {
-        $disponibilidad = verificarDisponibilidadCita($conexion, $datos['servicio'], $datos['fecha'], $datos['hora']);
-        if (!$disponibilidad['ok']) {
-            $errorMsg = $disponibilidad['mensaje'];
-        } else {
-            if ($esPacienteLogueado) {
-                $idCita = agendarCitaPaciente($conexion, $idUsuario, $datos);
-            } else {
-                asegurarEsquemaNotificaciones($conexion);
-                $stmt = $conexion->prepare("INSERT INTO cita (nombre, telefono, correo, servicio, fecha, hora, motivo, estado) VALUES (?, ?, ?, ?, ?, ?, ?, 'pendiente')");
-                $stmt->bind_param('sssssss', $datos['nombre'], $datos['telefono'], $datos['correo'], $datos['servicio'], $datos['fecha'], $datos['hora'], $datos['motivo']);
-                $idCita = $stmt->execute() ? ($conexion->insert_id ?: false) : false;
-            }
-
-            if ($idCita) {
-                $idPacienteNotif = $esPacienteLogueado ? $idUsuario : obtenerIdUsuarioPaciente($conexion, $datos['correo'], $datos['nombre']);
-                notificarNuevaCitaStaff($conexion, $datos, $idCita, $idPacienteNotif);
-                $_SESSION['ultima_cita'] = (int) $idCita;
-                header('Location: Agendar cita.php?exito=1&id=' . (int) $idCita);
-                exit;
-            }
-            $errorMsg = 'No se pudo guardar la cita. Intente nuevamente.';
+        $res = crearCita($conexion, $datos);
+        if ($res['ok']) {
+            $_SESSION['ultima_cita'] = (int) $res['id'];
+            header('Location: Agendar cita.php?exito=1&id=' . (int) $res['id']);
+            exit;
         }
+        $errorMsg = $res['msg'];
     }
 }
 
 if (isset($_GET['exito'], $_GET['id']) && $_GET['exito'] === '1') {
     // Solo se muestra la cita recién creada en esta misma sesión (evita ver citas ajenas cambiando el número)
     $idCitaOk = (int) $_GET['id'];
-    $resCita = $idCitaOk === (int) ($_SESSION['ultima_cita'] ?? 0)
-        ? $conexion->query("SELECT * FROM cita WHERE id_cita = $idCitaOk LIMIT 1")
-        : false;
-    if ($resCita) {
-        $citaExito = $resCita->fetch_assoc() ?: null;
+    if ($idCitaOk === (int) ($_SESSION['ultima_cita'] ?? 0)) {
+        $citaExito = obtenerCita($conexion, $idCitaOk);
     }
 }
 
-$misCitas = [];
-if ($esPacienteLogueado) {
-    $misCitas = obtenerCitasPaciente($conexion, $idUsuario, $prefill['correo'], $prefill['nombre']);
-}
+$misCitas = citasDePaciente($conexion, $idUsuario, $prefill['correo']);
+$proximasCitas = array_values(array_filter($misCitas, fn($c) => in_array($c['estado'] ?? '', ['pendiente', 'confirmada'], true) && $c['fecha'] >= date('Y-m-d')));
 
 $urlPanelPaciente = '../../log_in/modulos/paciente.php?page=citasPage';
 $urlIndex = '../../index.php';
@@ -247,6 +239,21 @@ $urlLogin = '../../log_in/log_in.php';
             color: var(--primary);
             margin-bottom: .5rem;
         }
+        .cita-mini .badge { color: #fff; font-size: .7rem; vertical-align: 1px; }
+        .cita-mini .badge.text-dark { color: #1e293b !important; }
+        .paciente-resumen { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+        .paciente-resumen div { background: var(--bg); border-radius: 10px; padding: .6rem .8rem; min-width: 0; }
+        .paciente-resumen span { display: block; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; }
+        .paciente-resumen strong { font-size: .92rem; overflow-wrap: anywhere; }
+        .turnos { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: .5rem; padding: .25rem; border-radius: 12px; transition: box-shadow .2s; }
+        .turnos--alerta { box-shadow: 0 0 0 3px rgba(220, 38, 38, .35); }
+        .turnos__vacio { grid-column: 1 / -1; margin: 0; padding: .9rem 1rem; background: var(--bg); border-radius: 10px; color: var(--muted); font-size: .9rem; }
+        .turnos__vacio--error { background: #fef2f2; color: #991b1b; }
+        .turno { border: 1.5px solid var(--border); background: var(--surface); border-radius: 10px; padding: .6rem .4rem; font-weight: 600; font-size: .9rem; color: var(--text); cursor: pointer; transition: border-color .15s, background .15s, color .15s; }
+        .turno:hover { border-color: var(--primary); color: var(--primary); }
+        .turno.is-sel { background: var(--primary); border-color: var(--primary); color: #fff; }
+        .turno:focus-visible { outline: 3px solid #9cc3ea; outline-offset: 2px; }
+        @media (max-width: 576px) { .paciente-resumen { grid-template-columns: 1fr; } }
         .paso-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.5rem; }
         .section-title { font-size: 1.35rem; font-weight: 800; margin-bottom: 1.25rem; letter-spacing: -.02em; }
 
@@ -574,12 +581,12 @@ $urlLogin = '../../log_in/log_in.php';
 <!-- ══════════ FORMULARIO ══════════ -->
 <section class="page-hero">
     <div class="inner">
-        <h1>Agenda tu cita médica</h1>
-        <p>Reserva en minutos. Elige especialidad, completa tus datos y listo — aparecerá en tu panel de paciente.</p>
+        <h1>Solicitar cita con especialista</h1>
+        <p>Hola, <?php echo e($primerNombre); ?>. Elija la especialidad y un turno libre; recepción confirmará la cita con su médico y consultorio.</p>
         <div class="steps-row">
-            <div class="step-pill"><span class="step-num">1</span> Elige servicio</div>
-            <div class="step-pill"><span class="step-num">2</span> Completa datos</div>
-            <div class="step-pill"><span class="step-num">3</span> Confirma cita</div>
+            <div class="step-pill"><span class="step-num">1</span> Especialidad</div>
+            <div class="step-pill"><span class="step-num">2</span> Día y turno</div>
+            <div class="step-pill"><span class="step-num">3</span> Confirmación de recepción</div>
         </div>
     </div>
 </section>
@@ -619,75 +626,59 @@ $urlLogin = '../../log_in/log_in.php';
                 <h2><i class="bi bi-calendar2-plus text-success"></i> Datos de tu cita</h2>
             </div>
             <div class="form-panel-body">
-                <form method="POST" id="formCita"><?php echo campoAntispam(); ?>
+                <form method="POST" id="formCita">
+                    <input type="hidden" name="_csrf" value="<?php echo e(csrfToken()); ?>">
                     <input type="hidden" name="tipo" value="cita">
 
                     <div class="form-section">
-                        <div class="form-section-title"><i class="bi bi-person"></i> Información personal</div>
-                        <div class="row g-0">
-                            <div class="col-md-6 pe-md-2">
-                                <div class="input-group-custom">
-                                    <label>Nombre completo *</label>
-                                    <div class="input-wrap"><i class="bi bi-person"></i><input type="text" name="nombre" id="fNombre" value="<?php echo htmlspecialchars($prefill['nombre']); ?>" required placeholder="Tu nombre"></div>
-                                </div>
-                            </div>
-                            <div class="col-md-6 ps-md-2">
-                                <div class="input-group-custom">
-                                    <label>Correo electrónico *</label>
-                                    <div class="input-wrap"><i class="bi bi-envelope"></i><input type="email" name="correo" id="fCorreo" value="<?php echo htmlspecialchars($prefill['correo']); ?>" required placeholder="correo@ejemplo.com"></div>
-                                </div>
-                            </div>
-                            <div class="col-md-6 pe-md-2">
-                                <div class="input-group-custom">
-                                    <label>Teléfono *</label>
-                                    <div class="input-wrap"><i class="bi bi-phone"></i><input type="tel" name="telefono" id="fTelefono" value="<?php echo htmlspecialchars($prefill['telefono']); ?>" required placeholder="300 123 4567"></div>
-                                </div>
-                            </div>
-                            <div class="col-md-6 ps-md-2">
-                                <div class="input-group-custom">
-                                    <label>Especialidad *</label>
-                                    <div class="input-wrap"><i class="bi bi-hospital"></i>
-                                        <select name="servicio" id="fServicio" required>
-                                            <option value="">Seleccione especialidad arriba</option>
-                                            <?php foreach ($todasEspecialidades as $esp): ?>
-                                            <option value="<?php echo htmlspecialchars($esp); ?>"><?php echo htmlspecialchars($esp); ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
+                        <div class="form-section-title"><i class="bi bi-person"></i> Paciente</div>
+                        <div class="paciente-resumen">
+                            <div><span>Nombre</span><strong><?php echo e($prefill['nombre']); ?></strong></div>
+                            <div><span>Documento</span><strong><?php echo e($prefill['documento']); ?></strong></div>
+                            <div><span>Correo</span><strong><?php echo e($prefill['correo']); ?></strong></div>
+                            <div><span>Celular</span><strong><?php echo e($prefill['telefono']); ?></strong></div>
                         </div>
+                        <p class="small text-muted mb-0 mt-2"><i class="bi bi-info-circle"></i> ¿Algún dato cambió? Actualícelo en <a href="../../log_in/modulos/paciente.php?page=perfilPage">Mi perfil</a>.</p>
                     </div>
 
                     <div class="form-section">
-                        <div class="form-section-title"><i class="bi bi-calendar3"></i> Fecha y hora</div>
-                        <div class="row g-0">
-                            <div class="col-md-6 pe-md-2">
-                                <div class="input-group-custom">
-                                    <label>Fecha de la cita *</label>
-                                    <div class="input-wrap"><i class="bi bi-calendar-event"></i><input type="date" name="fecha" id="fFecha" min="<?php echo date('Y-m-d'); ?>" required></div>
-                                </div>
-                            </div>
-                            <div class="col-md-6 ps-md-2">
-                                <div class="input-group-custom">
-                                    <label>Hora *</label>
-                                    <div class="input-wrap"><i class="bi bi-clock"></i><input type="time" name="hora" id="fHora" min="07:00" max="18:00" required></div>
-                                    <div id="dispMsg" class="small mt-1" style="display:none;"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="form-section-title"><i class="bi bi-chat-left-text"></i> Motivo (opcional)</div>
+                        <div class="form-section-title"><i class="bi bi-hospital"></i> Especialidad</div>
                         <div class="input-group-custom mb-0">
-                            <div class="input-wrap full"><textarea name="motivo" placeholder="Cuéntanos brevemente el motivo de tu consulta..."></textarea></div>
+                            <div class="input-wrap"><i class="bi bi-hospital"></i>
+                                <select name="servicio" id="fServicio" required>
+                                    <option value="">Elija una especialidad arriba o en esta lista</option>
+                                    <?php foreach ($todasEspecialidades as $esp): ?>
+                                    <option value="<?php echo e($esp); ?>"<?php echo ($_POST['servicio'] ?? '') === $esp ? ' selected' : ''; ?>><?php echo e($esp); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
                         </div>
                     </div>
 
-                    <button type="submit" class="btn-submit">
-                        <i class="bi bi-check2-circle"></i> Confirmar cita
+                    <div class="form-section">
+                        <div class="form-section-title"><i class="bi bi-calendar3"></i> Día y turno</div>
+                        <div class="input-group-custom">
+                            <label for="fFecha">Día de la cita *</label>
+                            <div class="input-wrap"><i class="bi bi-calendar-event"></i><input type="date" name="fecha" id="fFecha" min="<?php echo date('Y-m-d'); ?>" max="<?php echo date('Y-m-d', strtotime('+' . DIAS_MAX_ANTICIPACION . ' days')); ?>" value="<?php echo e($_POST['fecha'] ?? ''); ?>" required></div>
+                        </div>
+                        <input type="hidden" name="hora" id="fHora" value="">
+                        <label class="d-block fw-semibold small mb-2">Turnos disponibles *</label>
+                        <div id="turnos" class="turnos" aria-live="polite">
+                            <p class="turnos__vacio">Elija la especialidad y el día para ver los turnos libres.</p>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="form-section-title"><i class="bi bi-chat-left-text"></i> Motivo de la consulta (opcional)</div>
+                        <div class="input-group-custom mb-0">
+                            <div class="input-wrap full"><textarea name="motivo" maxlength="1000" placeholder="Cuéntenos brevemente el motivo. Ayuda al médico a prepararse."><?php echo e($_POST['motivo'] ?? ''); ?></textarea></div>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-submit" id="btnSolicitar">
+                        <i class="bi bi-send-check"></i> Solicitar cita
                     </button>
+                    <p class="small text-muted text-center mt-2 mb-0">Recepción confirmará su cita y le asignará médico y consultorio. Recibirá el aviso en su portal y por correo.</p>
                 </form>
             </div>
         </div>
@@ -695,11 +686,11 @@ $urlLogin = '../../log_in/log_in.php';
         <aside class="side-panel">
             <div class="info-card">
                 <h6><i class="bi bi-geo-alt-fill"></i> Ubicación</h6>
-                <div class="info-row"><i class="bi bi-pin-map"></i><span>Calle 10 # 5-20, Centro Médico, Cúcuta</span></div>
-                <div class="info-row"><i class="bi bi-telephone"></i><span>(601) 234-5678</span></div>
-                <div class="info-row"><i class="bi bi-clock"></i><span>Citas en línea: lun – vie · 7:00 a.m. – 6:00 p.m.</span></div>
-                <div class="info-row"><i class="bi bi-calendar2-check"></i><span>Servicios básicos: hasta 10 citas/día</span></div>
-                <div class="info-row"><i class="bi bi-calendar2-event"></i><span>Servicios especializados: hasta 5 citas/día</span></div>
+                <div class="info-row"><i class="bi bi-pin-map"></i><span><?php echo e(config('clinica.direccion')); ?></span></div>
+                <div class="info-row"><i class="bi bi-telephone"></i><span>Recepción: <?php echo e(config('clinica.telefono')); ?></span></div>
+                <div class="info-row"><i class="bi bi-clock"></i><span>Consulta externa: lun – vie 7:00 a.m. – 6:00 p.m. · sáb 8:00 a.m. – 1:00 p.m.</span></div>
+                <div class="info-row"><i class="bi bi-hourglass-split"></i><span>Llegue 15 minutos antes con su documento de identidad.</span></div>
+                <div class="info-row"><i class="bi bi-heart-pulse" style="color:#d64545"></i><span><strong>Urgencias no requieren cita:</strong> acuda directamente, atendemos 24 horas.</span></div>
                 <div class="map-box">
                     <iframe src="https://www.google.com/maps?q=<?php echo rawurlencode(config('clinica.direccion') . ', Colombia'); ?>&output=embed" loading="lazy" title="Mapa de la clínica"></iframe>
                 </div>
@@ -712,18 +703,18 @@ $urlLogin = '../../log_in/log_in.php';
                     <?php foreach (array_slice($misCitas, 0, 4) as $c): ?>
                     <div class="cita-mini">
                         <strong><?php echo htmlspecialchars($c['servicio']); ?></strong>
-                        <span><?php echo date('d/m/Y', strtotime($c['fecha'])); ?> · <?php echo date('H:i', strtotime($c['hora'])); ?> · <?php echo ucfirst($c['estado'] ?? 'pendiente'); ?></span>
+                        <span><?php echo date('d/m/Y', strtotime($c['fecha'])); ?> · <?php echo date('h:i a', strtotime($c['hora'])); ?> · <?php echo badgeEstadoCita($c['estado'] ?? 'pendiente'); ?></span>
                     </div>
                     <?php endforeach; ?>
                     <a href="<?php echo $urlPanelPaciente; ?>" class="btn-nav btn-nav-primary w-100 mt-2" style="justify-content:center;">Ver todas</a>
                 <?php else: ?>
-                    <p class="small text-muted mb-2">Aún no tienes citas. ¡Agenda la primera!</p>
+                    <p class="small text-muted mb-2">Aún no tiene citas registradas.</p>
                 <?php endif; ?>
             </div>
             <?php endif; ?>
 
             <div class="info-card text-center">
-                <p class="small text-muted mb-3">¿Quieres salir sin agendar?</p>
+                <p class="small text-muted mb-3">¿Prefiere hacerlo después?</p>
                 <?php if ($esPacienteLogueado): ?>
                 <a href="<?php echo $urlPanelPaciente; ?>" class="btn-nav btn-nav-ghost w-100 mb-2" style="justify-content:center;"><i class="bi bi-arrow-left"></i> Volver al panel</a>
                 <?php endif; ?>
@@ -759,6 +750,7 @@ $urlLogin = '../../log_in/log_in.php';
         sel.value = name;
         tiles.forEach(t => t.classList.toggle('selected', t.dataset.servicio === name));
         if (formPanel) formPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        cargarTurnos();
     }
 
     tiles.forEach(tile => {
@@ -766,71 +758,71 @@ $urlLogin = '../../log_in/log_in.php';
         tile.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectService(tile.dataset.servicio); } });
     });
 
-    if (sel) {
-        sel.addEventListener('change', () => {
-            tiles.forEach(t => t.classList.toggle('selected', t.dataset.servicio === sel.value));
-            checkDisponibilidad();
-        });
-    }
-
     const fFecha = document.getElementById('fFecha');
     const fHora = document.getElementById('fHora');
-    const dispMsg = document.getElementById('dispMsg');
+    const cajaTurnos = document.getElementById('turnos');
     const apiUrl = '../../log_in/conexion/verificar_disponibilidad.php';
+    let consulta = 0;
 
-    function showDispMsg(text, ok) {
-        if (!dispMsg) return;
-        if (!text) { dispMsg.style.display = 'none'; return; }
-        dispMsg.style.display = 'block';
-        dispMsg.textContent = text;
-        dispMsg.style.color = ok ? '#0a6e5c' : '#991b1b';
-        dispMsg.style.fontWeight = '600';
+    function mensajeTurnos(texto, tipo) {
+        cajaTurnos.innerHTML = '';
+        const p = document.createElement('p');
+        p.className = 'turnos__vacio' + (tipo ? ' turnos__vacio--' + tipo : '');
+        p.textContent = texto;
+        cajaTurnos.appendChild(p);
     }
 
-    async function checkDisponibilidad() {
+    function formatoHora(h) {
+        const [hh, mm] = h.split(':').map(Number);
+        const sufijo = hh < 12 ? 'a. m.' : 'p. m.';
+        return ((hh % 12) || 12) + ':' + String(mm).padStart(2, '0') + ' ' + sufijo;
+    }
+
+    async function cargarTurnos() {
+        fHora.value = '';
         const servicio = sel ? sel.value : '';
         const fecha = fFecha ? fFecha.value : '';
-        const hora = fHora ? fHora.value : '';
-        if (!servicio || !fecha) { showDispMsg('', true); return; }
+        if (!servicio || !fecha) { mensajeTurnos('Elija la especialidad y el día para ver los turnos libres.'); return; }
+        const id = ++consulta;
+        mensajeTurnos('Buscando turnos disponibles…');
         try {
-            const params = new URLSearchParams({ servicio, fecha });
-            if (hora) params.set('hora', hora);
-            const res = await fetch(apiUrl + '?' + params.toString());
+            const res = await fetch(apiUrl + '?' + new URLSearchParams({ servicio, fecha }), { credentials: 'same-origin' });
             const data = await res.json();
-            if (data.ok) {
-                const rest = data.resumen ? data.resumen.restantes : '';
-                showDispMsg(data.mensaje || (rest !== '' ? 'Cupos disponibles: ' + rest : ''), true);
-            } else {
-                showDispMsg(data.mensaje || 'No hay disponibilidad.', false);
-            }
+            if (id !== consulta) return;
+            if (!data.ok || !data.turnos.length) { mensajeTurnos(data.mensaje || 'No hay turnos libres ese día.', 'error'); return; }
+            cajaTurnos.innerHTML = '';
+            data.turnos.forEach(h => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'turno';
+                b.textContent = formatoHora(h);
+                b.setAttribute('aria-pressed', 'false');
+                b.addEventListener('click', () => {
+                    cajaTurnos.querySelectorAll('.turno').forEach(t => { t.classList.remove('is-sel'); t.setAttribute('aria-pressed', 'false'); });
+                    b.classList.add('is-sel');
+                    b.setAttribute('aria-pressed', 'true');
+                    fHora.value = h;
+                });
+                cajaTurnos.appendChild(b);
+            });
         } catch (e) {
-            showDispMsg('', true);
+            mensajeTurnos('No pudimos consultar la agenda. Revise su conexión e intente de nuevo.', 'error');
         }
     }
 
-    if (fFecha) fFecha.addEventListener('change', checkDisponibilidad);
-    if (fHora) fHora.addEventListener('change', checkDisponibilidad);
+    if (sel) sel.addEventListener('change', () => { tiles.forEach(t => t.classList.toggle('selected', t.dataset.servicio === sel.value)); cargarTurnos(); });
+    if (fFecha) fFecha.addEventListener('change', cargarTurnos);
+    if (sel && sel.value && fFecha && fFecha.value) cargarTurnos();
 
     const formCita = document.getElementById('formCita');
     if (formCita) {
-        formCita.addEventListener('submit', async e => {
-            const servicio = sel ? sel.value : '';
-            const fecha = fFecha ? fFecha.value : '';
-            const hora = fHora ? fHora.value : '';
-            if (!servicio || !fecha || !hora) return;
-            e.preventDefault();
-            try {
-                const params = new URLSearchParams({ servicio, fecha, hora });
-                const res = await fetch(apiUrl + '?' + params.toString());
-                const data = await res.json();
-                if (data.ok) {
-                    formCita.submit();
-                } else {
-                    showDispMsg(data.mensaje || 'No hay disponibilidad.', false);
-                    alert(data.mensaje || 'No hay disponibilidad.');
-                }
-            } catch (err) {
-                formCita.submit();
+        formCita.addEventListener('submit', e => {
+            if (!sel.value || !fFecha.value) return; // la validación del navegador avisa
+            if (!fHora.value) {
+                e.preventDefault();
+                cajaTurnos.classList.add('turnos--alerta');
+                cajaTurnos.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                setTimeout(() => cajaTurnos.classList.remove('turnos--alerta'), 1600);
             }
         });
     }

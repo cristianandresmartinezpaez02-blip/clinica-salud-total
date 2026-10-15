@@ -1,3 +1,4 @@
+<?php require_once __DIR__ . '/../../config/bootstrap.php'; iniciarSesion(); ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -376,7 +377,7 @@ footer {
   <?php require __DIR__ . '/../../includes/head_chrome.php'; ?>
 </head>
 <body>
-<?php $paginaActiva = 'transparencia'; require __DIR__ . '/../../includes/header.php'; ?>
+<?php $paginaActiva = 'nosotros'; require __DIR__ . '/../../includes/header.php'; ?>
 
 
 <header>

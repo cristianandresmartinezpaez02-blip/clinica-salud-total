@@ -15,6 +15,9 @@ require_once __DIR__ . '/../includes/panel_layout.php';
 require_once "../conexion/conexion.php";
 require_once "../conexion/notificaciones_servicio.php";
 require_once "../conexion/farmacia_servicio.php";
+require_once "../conexion/citas_servicio.php";
+require_once "../conexion/auth_servicio.php";
+require_once "../conexion/perfil_servicio.php";
 
 asegurarEsquemaNotificaciones($conexion);
 asegurarEsquemaFarmacia($conexion);
@@ -56,8 +59,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'actua
     $sex = trim($_POST['sexo'] ?? '');
     $dir = trim($_POST['direccion'] ?? '');
 
+    $cor = normalizarCorreo($cor);
+    $doc = (string) ($usuario['documento'] ?? ''); // verificado: solo recepción o administración lo corrigen
     if ($nom === '') {
         $mensaje = '❌ El nombre es obligatorio.';
+        $pageRedirect = 'perfilPage';
+    } elseif (!filter_var($cor, FILTER_VALIDATE_EMAIL)) {
+        $mensaje = '❌ Ingrese un correo válido: es el dato con el que ingresa al portal.';
+        $pageRedirect = 'perfilPage';
+    } elseif (correoYaRegistrado($conexion, $cor, $idUsuario)) {
+        $mensaje = '❌ Ese correo ya está en uso por otra cuenta.';
         $pageRedirect = 'perfilPage';
     } else {
         $stmt = $conexion->prepare("UPDATE usuario SET nombre = ?, apellido = ?, correo = ?, telefono = ? WHERE id_usuario = ?");
@@ -91,6 +102,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'actua
             $pageRedirect = 'perfilPage';
         }
     }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'cambiar_clave') {
+    if (($_POST['clave_nueva'] ?? '') !== ($_POST['clave_confirm'] ?? '')) {
+        $mensaje = '❌ Las contraseñas nuevas no coinciden.';
+    } else {
+        $resClave = cambiarClaveUsuario($conexion, $idUsuario, (string) ($_POST['clave_actual'] ?? ''), (string) ($_POST['clave_nueva'] ?? ''));
+        $mensaje = ($resClave['ok'] ? '✅ ' : '❌ ') . $resClave['msg'];
+    }
+    $pageRedirect = 'perfilPage';
 }
 
 if (isset($_GET['marcar_leidas']) && $_GET['marcar_leidas'] === '1') {
@@ -139,22 +160,28 @@ if ($idPaciente) {
     $facturasPaciente = obtenerFacturasPaciente($conexion, (int) $idPaciente);
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'cancelar_mi_cita') {
+    $citaCancelar = obtenerCita($conexion, (int) ($_POST['id_cita'] ?? 0));
+    if ($citaCancelar && (int) $citaCancelar['id_usuario'] === $idUsuario && in_array($citaCancelar['estado'], ['pendiente', 'confirmada'], true) && $citaCancelar['fecha'] >= date('Y-m-d')) {
+        $resCancel = cambiarEstadoCita($conexion, (int) $citaCancelar['id_cita'], 'cancelada');
+        if ($resCancel['ok']) {
+            insertarNotificacionRol($conexion, 'recepcion', "El paciente {$citaCancelar['nombre']} canceló su cita #{$citaCancelar['id_cita']} de {$citaCancelar['servicio']} (" . date('d/m/Y', strtotime($citaCancelar['fecha'])) . ' ' . date('g:i a', strtotime($citaCancelar['hora'])) . ').', 'cita_cancelada');
+        }
+        $mensaje = $resCancel['ok'] ? '✅ Su cita fue cancelada. El turno quedó libre para otro paciente.' : '❌ ' . $resCancel['msg'];
+    } else {
+        $mensaje = '❌ Esa cita no se puede cancelar desde el portal. Comuníquese con recepción.';
+    }
+    $citas = obtenerCitasPaciente($conexion, $idUsuario, $correoPaciente, $nombreCompleto);
+    $pageRedirect = 'citasPage';
+}
+
 $proximaCita = null;
 $hoy = date('Y-m-d');
 foreach ($citas as $c) {
-    if (($c['estado'] ?? '') !== 'cancelada' && ($c['fecha'] ?? '') >= $hoy) {
+    if (in_array($c['estado'] ?? '', ['pendiente', 'confirmada', 'en_sala'], true) && ($c['fecha'] ?? '') >= $hoy) {
         $proximaCita = $c;
         break;
     }
-}
-
-function badgeEstadoCita(string $estado): string {
-    return match($estado) {
-        'confirmada' => '<span class="badge bg-primary">Confirmada</span>',
-        'atendida'   => '<span class="badge bg-success">Atendida</span>',
-        'cancelada'  => '<span class="badge bg-danger">Cancelada</span>',
-        default      => '<span class="badge bg-warning text-dark">Pendiente</span>',
-    };
 }
 
 function tituloNotificacion(?string $tipo): string {
@@ -246,7 +273,7 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
             <div class="sidebar-nav">
                 <a href="#" class="active" data-page="dashboardPage"><i class="bi bi-house-door"></i> Inicio</a>
                 <a href="#" data-page="citasPage"><i class="bi bi-calendar-check"></i> Mis Citas</a>
-                <a href="<?php echo htmlspecialchars($urlAgendarCita); ?>"><i class="bi bi-calendar-plus"></i> Agendar Cita</a>
+                <a href="<?php echo htmlspecialchars($urlAgendarCita); ?>"><i class="bi bi-calendar-plus"></i> Solicitar cita</a>
                 <a href="#" data-page="notificacionesPage"><i class="bi bi-bell"></i> Notificaciones
                     <?php if ($notifNoLeidas): ?><span class="badge bg-danger ms-auto"><?php echo $notifNoLeidas; ?></span><?php endif; ?>
                 </a>
@@ -361,16 +388,16 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <div>
                             <h2 class="mb-0">Mis Citas Médicas</h2>
-                            <p class="text-muted mb-0">Todas las citas que ha agendado o que están a su nombre.</p>
+                            <p class="text-muted mb-0">Sus citas solicitadas en línea y las agendadas en recepción.</p>
                         </div>
-                        <a href="<?php echo htmlspecialchars($urlAgendarCita); ?>" class="btn btn-success"><i class="bi bi-plus-lg"></i> Nueva cita</a>
+                        <a href="<?php echo htmlspecialchars($urlAgendarCita); ?>" class="btn btn-primary"><i class="bi bi-plus-lg"></i> Solicitar cita</a>
                     </div>
                     <div class="card shadow-sm">
                         <div class="card-body table-responsive">
                             <table class="table table-hover align-middle mb-0">
                                 <thead class="table-light">
                                     <tr>
-                                        <th>#</th><th>Servicio</th><th>Fecha</th><th>Hora</th><th>Estado</th><th>Información</th>
+                                        <th>#</th><th>Especialidad</th><th>Fecha</th><th>Hora</th><th>Estado</th><th>Información</th><th></th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -380,7 +407,7 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                                         <td><?php echo $row['id_cita']; ?></td>
                                         <td><?php echo htmlspecialchars($row['servicio']); ?></td>
                                         <td><?php echo date('d/m/Y', strtotime($row['fecha'])); ?></td>
-                                        <td><?php echo date('H:i', strtotime($row['hora'])); ?></td>
+                                        <td><?php echo date('g:i a', strtotime($row['hora'])); ?></td>
                                         <td><?php echo badgeEstadoCita($row['estado'] ?? 'pendiente'); ?></td>
                                         <td>
                                             <?php if (!empty($row['nombre_medico'])): ?>
@@ -395,13 +422,22 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                                             <?php elseif (($row['estado'] ?? '') === 'atendida'): ?>
                                             <span class="text-success small"><i class="bi bi-check-circle"></i> Consulta finalizada — vea Mi Historial</span>
                                             <?php else: ?>
-                                            <span class="text-muted small">Esperando aprobación del personal</span>
+                                            <span class="text-muted small"><?php echo ($row['estado'] ?? '') === 'pendiente' ? 'Recepción confirmará la cita y le asignará médico y consultorio.' : htmlspecialchars(estadosCita()[$row['estado'] ?? 'pendiente'][2] ?? ''); ?></span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="text-end">
+                                            <?php if (in_array($row['estado'] ?? '', ['pendiente', 'confirmada'], true) && $row['fecha'] >= date('Y-m-d')): ?>
+                                            <form method="POST" onsubmit="return confirm('¿Desea cancelar esta cita?')">
+                                                <input type="hidden" name="accion" value="cancelar_mi_cita">
+                                                <input type="hidden" name="id_cita" value="<?php echo (int) $row['id_cita']; ?>">
+                                                <button class="btn btn-sm btn-outline-danger">Cancelar</button>
+                                            </form>
                                             <?php endif; ?>
                                         </td>
                                     </tr>
                                     <?php endforeach; ?>
                                 <?php else: ?>
-                                    <tr><td colspan="6" class="text-center text-muted py-5">No tiene citas. Use <strong>Agendar Cita</strong> para solicitar una.</td></tr>
+                                    <tr><td colspan="7" class="text-center text-muted py-5">No tiene citas. Use <strong>Solicitar cita</strong> para pedir una.</td></tr>
                                 <?php endif; ?>
                                 </tbody>
                             </table>
@@ -548,7 +584,8 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">Correo electrónico</label>
-                                    <input type="email" class="form-control" name="correo" value="<?php echo htmlspecialchars($correoPaciente); ?>">
+                                    <input type="email" class="form-control" name="correo" required value="<?php echo htmlspecialchars($correoPaciente); ?>">
+                                    <small class="text-muted">Con este correo ingresa al portal.</small>
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">Teléfono</label>
@@ -556,7 +593,8 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label">Documento</label>
-                                    <input type="text" class="form-control" name="documento" value="<?php echo htmlspecialchars($usuario['documento'] ?? ''); ?>">
+                                    <input type="text" class="form-control" value="<?php echo htmlspecialchars(trim(($usuario['tipo_documento'] ?? '') . ' ' . ($usuario['documento'] ?? ''))); ?>" readonly disabled>
+                                    <small class="text-muted">Documento verificado. Para corregirlo acérquese a recepción.</small>
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label">Fecha de nacimiento</label>
@@ -579,6 +617,20 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                                     <button type="submit" class="btn btn-success"><i class="bi bi-save"></i> Guardar cambios</button>
                                     <a href="../conexion/cerrar_sesion.php" class="btn btn-outline-danger"><i class="bi bi-box-arrow-right"></i> Cerrar Sesión</a>
                                 </div>
+                            </form>
+                        </div>
+                    </div>
+                    <div class="card shadow-sm mt-4">
+                        <div class="card-body">
+                            <h5 class="fw-bold mb-3"><i class="bi bi-key"></i> Cambiar contraseña</h5>
+                            <p class="text-muted small">Si recibió una contraseña temporal en recepción, cámbiela aquí.</p>
+                            <form method="POST" class="row g-3">
+                                <input type="hidden" name="accion" value="cambiar_clave">
+                                <div class="col-md-4"><label class="form-label">Contraseña actual</label><input type="password" class="form-control" name="clave_actual" required autocomplete="current-password"></div>
+                                <div class="col-md-4"><label class="form-label">Nueva contraseña</label><input type="password" class="form-control" name="clave_nueva" required minlength="8" autocomplete="new-password"></div>
+                                <div class="col-md-4"><label class="form-label">Confirmar nueva</label><input type="password" class="form-control" name="clave_confirm" required minlength="8" autocomplete="new-password"></div>
+                                <div class="col-12"><small class="text-muted">Mínimo 8 caracteres, con letras y números.</small></div>
+                                <div class="col-12"><button class="btn btn-outline-primary">Actualizar contraseña</button></div>
                             </form>
                         </div>
                     </div>

@@ -18,6 +18,7 @@ require_once "../conexion/conexion.php";
 require_once "../conexion/contacto_servicio.php";
 require_once "../conexion/notificaciones_servicio.php";
 require_once "../conexion/auth_servicio.php";
+require_once "../conexion/citas_servicio.php"; // estados de cita, médicos y catálogo de especialidades
 
 asegurarEsquemaAuth($conexion);
 
@@ -42,27 +43,14 @@ function tableExists(mysqli $conexion, string $table): bool {
 }
 
 // -----------------------------------------------------------
-// Acciones GET: citas, donaciones, contactos
+// Acciones: citas y mensajes de contacto
 // -----------------------------------------------------------
-if (isset($_GET['cita_estado'], $_GET['id'])) {
-    $idCita = intval($_GET['id']);
-    $estado = $_GET['cita_estado'] === 'aprobar' ? 'confirmada' : 'cancelada';
-    $stmt = $conexion->prepare("UPDATE cita SET estado = ? WHERE id_cita = ?");
-    $stmt->bind_param("si", $estado, $idCita);
-    $stmt->execute();
-    $mensaje = $estado === 'confirmada' ? '✅ Cita aprobada.' : '🚫 Cita cancelada.';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'cancelar_cita') {
+    $resCita = cambiarEstadoCita($conexion, (int) ($_POST['id_cita'] ?? 0), 'cancelada');
+    $mensaje = ($resCita['ok'] ? '🚫 ' : '❌ ') . $resCita['msg'];
     $pageRedirect = 'citasPage';
 }
 
-if (tableExists($conexion, 'donaciones') && isset($_GET['donacion_estado'], $_GET['id'])) {
-    $idDonacion = intval($_GET['id']);
-    $estadoDon = $_GET['donacion_estado'] === 'completar' ? 'completada' : 'procesada';
-    $stmt = $conexion->prepare("UPDATE donaciones SET estado = ? WHERE id_donacion = ?");
-    $stmt->bind_param("si", $estadoDon, $idDonacion);
-    $stmt->execute();
-    $mensaje = '✅ Donación actualizada.';
-    $pageRedirect = 'donacionesPage';
-}
 
 if (tableExists($conexion, 'contactos') && isset($_GET['contacto_estado'], $_GET['id'])) {
     $idContacto = intval($_GET['id']);
@@ -98,14 +86,16 @@ if (isset($_GET['verificar_id'], $_GET['verificar_accion'])) {
     $adminNombre = trim($_SESSION['nombre'] ?? 'Administrador');
     if ($accionVerif === 'aprobar') {
         if (aprobarVerificacionIdentidad($conexion, $idVerificar, $adminNombre)) {
-            $mensaje = '✅ Identidad verificada y aprobada.';
+            notificarResultadoVerificacion($conexion, $idVerificar, true);
+            $mensaje = '✅ Identidad verificada. Se avisó al paciente.';
         } else {
             $mensaje = '❌ No se pudo aprobar la verificación.';
         }
     } elseif ($accionVerif === 'rechazar') {
         $motivo = trim($_GET['motivo'] ?? '');
         if (rechazarVerificacionIdentidad($conexion, $idVerificar, $adminNombre, $motivo)) {
-            $mensaje = '🚫 Verificación de identidad rechazada.';
+            notificarResultadoVerificacion($conexion, $idVerificar, false, $motivo);
+            $mensaje = '🚫 Verificación rechazada. Se avisó al paciente.';
         } else {
             $mensaje = '❌ No se pudo rechazar la verificación.';
         }
@@ -116,144 +106,106 @@ if (isset($_GET['verificar_id'], $_GET['verificar_accion'])) {
 // -----------------------------------------------------------
 // Agregar usuario
 // -----------------------------------------------------------
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'agregar') {
-    $nombre = trim($_POST['nombre']);
-    $apellido = trim($_POST['apellido']);
-    $usuario = trim($_POST['usuario']);
-    $clave = password_hash($_POST['clave'], PASSWORD_DEFAULT);
-    $rol = $_POST['rol'];
-    $estado = $_POST['estado'];
-    $correo = trim($_POST['correo']);
-    $telefono = trim($_POST['telefono']);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['accion'] ?? '', ['agregar', 'editar_guardar'], true)) {
+    $esNuevo = $_POST['accion'] === 'agregar';
+    $idEditar = (int) ($_POST['id_usuario'] ?? 0);
+    $nombre = trim($_POST['nombre'] ?? '');
+    $apellido = trim($_POST['apellido'] ?? '');
+    $rol = $_POST['rol'] ?? '';
+    $estado = ($_POST['estado'] ?? '') === 'inactivo' ? 'inactivo' : 'activo';
+    $correo = normalizarCorreo($_POST['correo'] ?? '');
+    $telefono = preg_replace('/[^0-9+ ]/', '', trim($_POST['telefono'] ?? ''));
+    $claveNueva = (string) ($_POST['clave'] ?? '');
     $tipoDocumento = strtoupper(trim($_POST['tipo_documento'] ?? ''));
     $documento = normalizarDocumento(trim($_POST['documento'] ?? ''));
-    $licenciaMedica = normalizarDocumento(trim($_POST['licencia_medica'] ?? ''));
-
-    $rolesConDocumento = ['medico', 'enfermero', 'farmaceuta', 'paciente', 'admin'];
-    if (in_array($rol, $rolesConDocumento, true)) {
-        if ($errDoc = validarDocumentoRegistro($rol, $tipoDocumento, $_POST['documento'] ?? '')) {
-            $mensaje = '❌ ' . $errDoc;
-            $pageRedirect = 'usuariosPage';
-        } elseif (documentoYaRegistrado($conexion, $tipoDocumento, $_POST['documento'] ?? '')) {
-            $mensaje = '❌ Ese documento ya está registrado en el sistema.';
-            $pageRedirect = 'usuariosPage';
-        }
-    }
-
-    $rolesConFoto = ['medico', 'enfermero', 'farmaceuta'];
-    $fotoDocRuta = null;
-    $fotoSelfieRuta = null;
-    if ($mensaje === '' && in_array($rol, $rolesConFoto, true)) {
-        $subDoc = subirFotoIdentidad($_FILES['foto_documento'] ?? [], 'admin_doc');
-        if (!$subDoc['ok']) {
-            $mensaje = '❌ ' . $subDoc['error'];
-            $pageRedirect = 'usuariosPage';
-        } else {
-            $fotoDocRuta = $subDoc['ruta'];
-            $subSelfie = subirFotoIdentidad($_FILES['foto_selfie'] ?? [], 'admin_selfie');
-            if (!$subSelfie['ok']) {
-                $mensaje = '❌ ' . $subSelfie['error'];
-                $pageRedirect = 'usuariosPage';
-            } else {
-                $fotoSelfieRuta = $subSelfie['ruta'];
-            }
-        }
-    }
-
-    if ($mensaje === '') {
-        $verificacion = 'aprobada';
-        $verificadoPor = trim($_SESSION['nombre'] ?? 'Administrador') . ' (Admin)';
-
-        $sql = "INSERT INTO usuario (nombre, apellido, usuario, clave, rol, estado, correo, telefono, documento, tipo_documento, foto_documento, foto_selfie_documento, verificacion_identidad, verificado_por, fecha_verificacion_identidad, acepto_tratamiento_datos, fecha_acepto_tratamiento)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 1, NOW())";
-        $stmt = $conexion->prepare($sql);
-        $stmt->bind_param("ssssssssssssss", $nombre, $apellido, $usuario, $clave, $rol, $estado, $correo, $telefono, $documento, $tipoDocumento, $fotoDocRuta, $fotoSelfieRuta, $verificacion, $verificadoPor);
-
-        if ($stmt->execute()) {
-            $nuevoId = $stmt->insert_id;
-
-            if ($rol === 'medico') {
-                $licenciaFinal = $licenciaMedica !== '' ? $licenciaMedica : $documento;
-                $stmtMedico = $conexion->prepare("INSERT INTO medico (id_usuario, licencia_medica) VALUES (?, ?)");
-                $stmtMedico->bind_param("is", $nuevoId, $licenciaFinal);
-                $stmtMedico->execute();
-            } elseif ($rol === 'paciente') {
-                $stmtPaciente = $conexion->prepare("INSERT INTO paciente (id_usuario, documento) VALUES (?, ?)");
-                $stmtPaciente->bind_param("is", $nuevoId, $documento);
-                $stmtPaciente->execute();
-            } elseif ($rol === 'enfermero') {
-                $stmtEnf = $conexion->prepare("INSERT INTO enfermero (id_usuario) VALUES (?)");
-                $stmtEnf->bind_param("i", $nuevoId);
-                $stmtEnf->execute();
-            } elseif ($rol === 'farmaceuta') {
-                $codigoEmpleado = normalizarDocumento(trim($_POST['codigo_empleado'] ?? ''));
-                $stmtFarm = $conexion->prepare("INSERT INTO farmaceuta (id_usuario, codigo_empleado) VALUES (?, ?)");
-                $stmtFarm->bind_param("is", $nuevoId, $codigoEmpleado !== '' ? $codigoEmpleado : $documento);
-                $stmtFarm->execute();
-            }
-
-            $mensaje = "✅ Usuario agregado correctamente con verificación de identidad.";
-            $pageRedirect = 'usuariosPage';
-        } else {
-            $mensaje = "❌ Error al agregar: " . $conexion->error;
-            $pageRedirect = 'usuariosPage';
-        }
-    }
-}
-
-// -----------------------------------------------------------
-// Editar usuario
-// -----------------------------------------------------------
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'editar_guardar') {
-    $id = intval($_POST['id_usuario']);
-    $nombre = trim($_POST['nombre']);
-    $apellido = trim($_POST['apellido']);
-    $usuario = trim($_POST['usuario']);
-    $rol = $_POST['rol'];
-    $estado = $_POST['estado'];
-    $correo = trim($_POST['correo']);
-    $telefono = trim($_POST['telefono']);
-
-    $sql = "UPDATE usuario SET nombre=?, apellido=?, usuario=?, rol=?, estado=?, correo=?, telefono=? WHERE id_usuario=?";
-    $stmt = $conexion->prepare($sql);
-    $stmt->bind_param("sssssssi", $nombre, $apellido, $usuario, $rol, $estado, $correo, $telefono, $id);
-
-    if ($stmt->execute()) {
-        if (!empty($_POST['clave'])) {
-            $claveHash = password_hash($_POST['clave'], PASSWORD_DEFAULT);
-            $stmtClave = $conexion->prepare("UPDATE usuario SET clave=? WHERE id_usuario=?");
-            $stmtClave->bind_param("si", $claveHash, $id);
-            $stmtClave->execute();
-        }
-        $mensaje = "✏️ Usuario actualizado correctamente.";
-    } else {
-        $mensaje = "❌ Error al editar: " . $conexion->error;
-    }
+    $especialidad = trim($_POST['especialidad'] ?? '');
+    $licenciaMedica = trim($_POST['licencia_medica'] ?? '');
+    $codigoEmpleado = trim($_POST['codigo_empleado'] ?? '');
     $pageRedirect = 'usuariosPage';
+
+    if ($nombre === '' || $apellido === '') {
+        $mensaje = '❌ Escriba nombre y apellido.';
+    } elseif (!array_key_exists($rol, rolesSistema())) {
+        $mensaje = '❌ Seleccione un rol válido.';
+    } elseif (!filter_var($correo, FILTER_VALIDATE_EMAIL)) {
+        $mensaje = '❌ El correo no es válido. Es el dato con el que la persona ingresa al sistema.';
+    } elseif (correoYaRegistrado($conexion, $correo, $esNuevo ? null : $idEditar)) {
+        $mensaje = '❌ Ya existe otra cuenta con ese correo.';
+    } elseif (($esNuevo || $claveNueva !== '') && !claveSegura($claveNueva)) {
+        $mensaje = '❌ La contraseña debe tener al menos 8 caracteres e incluir letras y números.';
+    } elseif ($rol === 'medico' && !in_array($especialidad, obtenerTodasEspecialidades(), true)) {
+        $mensaje = '❌ Seleccione la especialidad del médico (se usa para asignarle citas).';
+    } elseif ($esNuevo && ($errDoc = validarFormatoDocumento($tipoDocumento, $documento))) {
+        $mensaje = '❌ ' . $errDoc;
+    } elseif ($esNuevo && documentoYaRegistrado($conexion, $tipoDocumento, $documento)) {
+        $mensaje = '❌ Ese documento ya está registrado en el sistema.';
+    } elseif (!$esNuevo && $idEditar === (int) $_SESSION['id_usuario'] && ($rol !== 'admin' || $estado !== 'activo')) {
+        $mensaje = '❌ No puede quitarse a sí mismo el rol de administrador ni desactivar su propia cuenta.';
+    } elseif ($esNuevo) {
+        $usuario = generarNombreUsuario($conexion, $correo);
+        $clave = password_hash($claveNueva, PASSWORD_DEFAULT);
+        $verificadoPor = trim($_SESSION['nombre'] ?? 'Administrador') . ' (Admin)';
+        $stmt = $conexion->prepare("INSERT INTO usuario (nombre, apellido, usuario, clave, rol, estado, correo, telefono, documento, tipo_documento,
+                verificacion_identidad, verificado_por, fecha_verificacion_identidad, acepto_tratamiento_datos, fecha_acepto_tratamiento)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aprobada', ?, NOW(), 1, NOW())");
+        $stmt->bind_param('sssssssssss', $nombre, $apellido, $usuario, $clave, $rol, $estado, $correo, $telefono, $documento, $tipoDocumento, $verificadoPor);
+        if ($stmt->execute()) {
+            $nuevoId = (int) $stmt->insert_id;
+            if ($rol === 'medico') {
+                $lic = $licenciaMedica !== '' ? $licenciaMedica : null;
+                $s = $conexion->prepare('INSERT INTO medico (id_usuario, especialidad, licencia_medica) VALUES (?, ?, ?)');
+                $s->bind_param('iss', $nuevoId, $especialidad, $lic);
+                $s->execute();
+            } elseif ($rol === 'paciente') {
+                $s = $conexion->prepare('INSERT INTO paciente (id_usuario, documento) VALUES (?, ?)');
+                $s->bind_param('is', $nuevoId, $documento);
+                $s->execute();
+            } elseif ($rol === 'enfermero') {
+                $s = $conexion->prepare('INSERT INTO enfermero (id_usuario) VALUES (?)');
+                $s->bind_param('i', $nuevoId);
+                $s->execute();
+            } elseif ($rol === 'farmaceuta') {
+                $cod = $codigoEmpleado !== '' ? $codigoEmpleado : $documento;
+                $s = $conexion->prepare('INSERT INTO farmaceuta (id_usuario, codigo_empleado) VALUES (?, ?)');
+                $s->bind_param('is', $nuevoId, $cod);
+                $s->execute();
+            }
+            $mensaje = '✅ Usuario creado. Ingresa con el correo ' . $correo . ' y la contraseña asignada.';
+        } else {
+            error_log('admin agregar usuario: ' . $stmt->error);
+            $mensaje = '❌ No se pudo crear el usuario.';
+        }
+    } else {
+        $stmt = $conexion->prepare('UPDATE usuario SET nombre = ?, apellido = ?, rol = ?, estado = ?, correo = ?, telefono = ? WHERE id_usuario = ?');
+        $stmt->bind_param('ssssssi', $nombre, $apellido, $rol, $estado, $correo, $telefono, $idEditar);
+        if ($stmt->execute()) {
+            if ($claveNueva !== '') {
+                $hash = password_hash($claveNueva, PASSWORD_DEFAULT);
+                $s = $conexion->prepare('UPDATE usuario SET clave = ? WHERE id_usuario = ?');
+                $s->bind_param('si', $hash, $idEditar);
+                $s->execute();
+            }
+            if ($rol === 'medico') {
+                $s = $conexion->prepare('SELECT id_medico FROM medico WHERE id_usuario = ? LIMIT 1');
+                $s->bind_param('i', $idEditar);
+                $s->execute();
+                if ($s->get_result()->fetch_row()) {
+                    $s = $conexion->prepare('UPDATE medico SET especialidad = ? WHERE id_usuario = ?');
+                    $s->bind_param('si', $especialidad, $idEditar);
+                } else {
+                    $s = $conexion->prepare('INSERT INTO medico (id_usuario, especialidad) VALUES (?, ?)');
+                    $s->bind_param('is', $idEditar, $especialidad);
+                }
+                $s->execute();
+            }
+            $mensaje = '✅ Usuario actualizado.';
+        } else {
+            error_log('admin editar usuario: ' . $stmt->error);
+            $mensaje = '❌ No se pudo actualizar el usuario.';
+        }
+    }
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'editar_cita') {
-    $idCita = intval($_POST['id_cita']);
-    $nombre = trim($_POST['nombre']);
-    $telefono = trim($_POST['telefono']);
-    $correo = trim($_POST['correo']);
-    $servicio = trim($_POST['servicio']);
-    $fecha = $_POST['fecha'];
-    $hora = $_POST['hora'];
-    $motivo = trim($_POST['motivo'] ?? '');
-    $estado = $_POST['estado'] ?? 'pendiente';
-    if (!in_array($estado, ['pendiente', 'confirmada', 'cancelada'], true)) {
-        $estado = 'pendiente';
-    }
-    $stmt = $conexion->prepare("UPDATE cita SET nombre=?, telefono=?, correo=?, servicio=?, fecha=?, hora=?, motivo=?, estado=? WHERE id_cita=?");
-    $stmt->bind_param("ssssssssi", $nombre, $telefono, $correo, $servicio, $fecha, $hora, $motivo, $estado, $idCita);
-    if ($stmt->execute()) {
-        $mensaje = "✏️ Cita actualizada correctamente.";
-    } else {
-        $mensaje = "❌ Error al editar cita: " . $conexion->error;
-    }
-    $pageRedirect = 'citasPage';
-}
 
 // -----------------------------------------------------------
 // Actualizar datos de paciente o médico
@@ -285,7 +237,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
 // -----------------------------------------------------------
 // Eliminar usuario
 // -----------------------------------------------------------
-if (isset($_GET['eliminar'])) {
+if (isset($_GET['eliminar']) && (int) $_GET['eliminar'] === (int) $_SESSION['id_usuario']) {
+    $mensaje = '❌ No puede eliminar su propia cuenta.';
+    $pageRedirect = 'usuariosPage';
+} elseif (isset($_GET['eliminar'])) {
     $id = intval($_GET['eliminar']);
 
     $tablasRelacionadas = ['paciente', 'medico', 'enfermero', 'farmaceuta'];
@@ -316,7 +271,7 @@ if (isset($_GET['page'])) {
 // -----------------------------------------------------------
 // Consultas principales
 // -----------------------------------------------------------
-$usuarios = fetchAll($conexion, "SELECT * FROM usuario ORDER BY id_usuario DESC");
+$usuarios = fetchAll($conexion, "SELECT u.*, m.especialidad AS especialidad_medico FROM usuario u LEFT JOIN medico m ON m.id_usuario = u.id_usuario ORDER BY u.id_usuario DESC");
 $citas = fetchAll($conexion, "SELECT * FROM cita ORDER BY fecha DESC, hora DESC");
 foreach ($citas as &$citaAdmin) {
     if (empty($citaAdmin['telefono'])) {
@@ -324,9 +279,6 @@ foreach ($citas as &$citaAdmin) {
     }
 }
 unset($citaAdmin);
-$donaciones = tableExists($conexion, 'donaciones')
-    ? fetchAll($conexion, "SELECT * FROM donaciones ORDER BY fecha_donacion DESC")
-    : [];
 $contactos = obtenerContactos($conexion);
 $notificaciones = tableExists($conexion, 'notificaciones')
     ? fetchAll($conexion, "SELECT * FROM notificaciones WHERE tipo_usuario IN ('admin', 'sistema') ORDER BY fecha DESC LIMIT 10")
@@ -352,8 +304,8 @@ $medicos = fetchAll($conexion, "
 
 $totalUsuarios = count($usuarios);
 $totalCitas = count($citas);
-$totalDonaciones = count($donaciones);
 $totalContactos = count($contactos);
+$mensajesPendientes = count(array_filter($contactos, fn($c) => ($c['estado'] ?? 'pendiente') === 'pendiente'));
 
 $hoy = date('Y-m-d');
 $citasHoy = 0;
@@ -369,7 +321,6 @@ if ($resActivos) {
 }
 
 $citasPendientes = array_values(array_filter($citas, fn($c) => ($c['estado'] ?? 'pendiente') === 'pendiente'));
-$donacionesPendientes = array_values(array_filter($donaciones, fn($d) => ($d['estado'] ?? 'pendiente') === 'pendiente'));
 $pendientesVerificacion = obtenerUsuariosPendientesVerificacion($conexion);
 $totalPendientesVerificacion = count($pendientesVerificacion);
 
@@ -415,7 +366,6 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
         <a href="#" data-page="verificacionPage"><i class="bi bi-person-check"></i> Verificar identidad <?php if ($totalPendientesVerificacion > 0): ?><span class="badge bg-warning text-dark"><?php echo $totalPendientesVerificacion; ?></span><?php endif; ?></a>
         <a href="#" data-page="pacientesPage"><i class="bi bi-person-heart"></i> Pacientes</a>
         <a href="#" data-page="medicosPage"><i class="bi bi-heart-pulse"></i> Médicos</a>
-        <a href="#" data-page="donacionesPage"><i class="bi bi-gift"></i> Donaciones</a>
         <a href="#" data-page="citasPage"><i class="bi bi-calendar-check"></i> Citas médicas</a>
         <a href="#" data-page="contactosPage"><i class="bi bi-envelope"></i> Mensajes</a>
             <?php echo panelSidebarFooter(true); ?>
@@ -447,26 +397,6 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                 </ul>
               </li>
 
-              <!-- Notificaciones de Donaciones -->
-              <li class="nav-item dropdown mx-3">
-                <a class="nav-link" href="#" id="donacionesDropdown" role="button" data-bs-toggle="dropdown">
-                  <i class="bi bi-envelope fs-5"></i>
-                  <span class="badge bg-primary rounded-pill" id="donacionesCount"><?php echo count($donacionesPendientes); ?></span>
-                </a>
-                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="donacionesDropdown">
-                  <li><h6 class="dropdown-header">Donaciones</h6></li>
-                  <?php if (count($donacionesPendientes) > 0): ?>
-                    <?php foreach (array_slice($donacionesPendientes, 0, 5) as $don): ?>
-                      <li><a class="dropdown-item small" href="#" onclick="showPage('donacionesPage'); return false;">
-                        <?php echo htmlspecialchars($don['nombre'] . ' - ' . $don['tipo_donacion']); ?>
-                      </a></li>
-                    <?php endforeach; ?>
-                  <?php else: ?>
-                    <li><span class="dropdown-item text-muted">Sin donaciones pendientes</span></li>
-                  <?php endif; ?>
-                </ul>
-              </li>
-
               <!-- Usuario -->
               <li class="nav-item dropdown">
                 <a class="nav-link dropdown-toggle" href="#" id="usuarioDropdown" role="button" data-bs-toggle="dropdown">
@@ -494,7 +424,6 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
           <!-- Dashboard -->
           <div id="dashboardPage" class="page-section active">
             <?php
-              $mensajesPendientes = count(array_filter($contactos, fn($c) => ($c['estado'] ?? 'pendiente') === 'pendiente'));
               $meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
               $dias = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
               $fechaHoy = $dias[(int) date('w')] . ' ' . date('j') . ' de ' . $meses[(int) date('n') - 1] . ' de ' . date('Y');
@@ -541,7 +470,7 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                 <div class="card bg-info text-white"><div class="card-body"><h5>Citas hoy</h5><h3><?php echo $citasHoy; ?></h3><small><?php echo date('d/m/Y'); ?></small></div></div>
               </div>
               <div class="col-sm-6 col-xl-3">
-                <div class="card bg-warning text-white"><div class="card-body"><h5>Donaciones</h5><h3><?php echo $totalDonaciones; ?></h3><small><?php echo count($donacionesPendientes); ?> por gestionar</small></div></div>
+                <div class="card bg-warning text-white"><div class="card-body"><h5>Mensajes</h5><h3><?php echo $totalContactos; ?></h3><small><?php echo $mensajesPendientes; ?> sin responder</small></div></div>
               </div>
             </div>
 
@@ -607,10 +536,10 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                       <th>ID</th>
                       <th>Nombre</th>
                       <th>Apellido</th>
-                      <th>Usuario</th>
+                      <th>Documento</th>
                       <th>Rol</th>
                       <th>Estado</th>
-                      <th>Mail</th>
+                      <th>Correo</th>
                       <th>Teléfono</th>
                       <th>Acciones</th>
                     </tr>
@@ -623,7 +552,7 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                                 'id_usuario' => $row['id_usuario'],
                                 'nombre' => $row['nombre'],
                                 'apellido' => $row['apellido'],
-                                'usuario' => $row['usuario'],
+                                'especialidad' => $row['especialidad_medico'] ?? '',
                                 'rol' => $row['rol'],
                                 'estado' => $row['estado'],
                                 'correo' => $row['correo'] ?? '',
@@ -633,8 +562,8 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                             echo "<td>" . $row['id_usuario'] . "</td>";
                             echo "<td>" . htmlspecialchars($row['nombre']) . "</td>";
                             echo "<td>" . htmlspecialchars($row['apellido']) . "</td>";
-                            echo "<td>" . htmlspecialchars($row['usuario']) . "</td>";
-                            echo "<td><span class='badge bg-info'>" . htmlspecialchars($row['rol']) . "</span></td>";
+                            echo "<td>" . htmlspecialchars(trim(($row['tipo_documento'] ?? '') . ' ' . ($row['documento'] ?? ''))) . "</td>";
+                            echo "<td><span class='badge bg-info'>" . htmlspecialchars(rolesSistema()[$row['rol']] ?? $row['rol']) . "</span>" . ($row['rol'] === 'medico' && !empty($row['especialidad_medico']) ? '<br><small class="text-muted">' . htmlspecialchars($row['especialidad_medico']) . '</small>' : '') . "</td>";
                             echo "<td><span class='badge " . ($row['estado'] == 'activo' ? 'bg-success' : 'bg-danger') . "'>" . htmlspecialchars($row['estado']) . "</span></td>";
                             echo "<td>" . htmlspecialchars($row['correo'] ?? '') . "</td>";
                             echo "<td>" . htmlspecialchars($row['telefono'] ?? '') . "</td>";
@@ -658,101 +587,82 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
             <div class="card shadow-sm form-section">
               <div class="card-header" id="formUsuarioTitulo">Agregar Nuevo Usuario</div>
               <div class="card-body">
-               <form method="POST" id="formUsuario" enctype="multipart/form-data">
+               <form method="POST" id="formUsuario">
                <input type="hidden" name="accion" id="accionUsuario" value="agregar">
                <input type="hidden" name="id_usuario" id="idUsuarioEdit" value="">
 
-                  <div class="row mb-3">
+                  <div class="row g-3">
                     <div class="col-md-6">
-                      <label class="form-label">Nombre</label>
-                      <input type="text" class="form-control" name="nombre" required>
+                      <label class="form-label">Nombres</label>
+                      <input type="text" class="form-control" name="nombre" required maxlength="100">
                     </div>
                     <div class="col-md-6">
-                      <label class="form-label">Apellido</label>
-                      <input type="text" class="form-control" name="apellido" required>
-                    </div>
-                  </div>
-                  <div class="row mb-3">
-                    <div class="col-md-6">
-                      <label class="form-label">Usuario</label>
-                      <input type="text" class="form-control" name="usuario" required>
+                      <label class="form-label">Apellidos</label>
+                      <input type="text" class="form-control" name="apellido" required maxlength="100">
                     </div>
                     <div class="col-md-6">
-                      <label class="form-label">Contraseña</label>
-                      <input type="password" class="form-control" name="clave" id="claveUsuario">
-                      <small class="text-muted" id="claveHelp">Obligatoria al crear. Dejar vacía al editar para no cambiar.</small>
+                      <label class="form-label">Correo electrónico <small class="text-muted fw-normal">(con él ingresa al sistema)</small></label>
+                      <input type="email" class="form-control" name="correo" required maxlength="100">
                     </div>
-                  </div>
-                  <div class="row mb-3">
                     <div class="col-md-6">
+                      <label class="form-label">Teléfono</label>
+                      <input type="text" class="form-control" name="telefono" maxlength="20">
+                    </div>
+                    <div class="col-md-4">
                       <label class="form-label">Rol</label>
                       <select class="form-select" name="rol" required>
-                        <option value="">-- Selecciona un rol --</option>
-                        <option value="admin">Administrador</option>
-                        <option value="medico">Médico</option>
-                        <option value="enfermero">Enfermero</option>
-                        <option value="farmaceuta">Farmacéutico</option>
-                        <option value="paciente">Paciente</option>
+                        <option value="">Seleccione…</option>
+                        <?php foreach (rolesSistema() as $valorRol => $textoRol): ?>
+                          <option value="<?php echo $valorRol; ?>"><?php echo $textoRol; ?></option>
+                        <?php endforeach; ?>
                       </select>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                       <label class="form-label">Estado</label>
                       <select class="form-select" name="estado" required>
-                        <option value="">-- Selecciona estado --</option>
                         <option value="activo">Activo</option>
                         <option value="inactivo">Inactivo</option>
                       </select>
                     </div>
-                  </div>
-                  <div class="row mb-3">
-                    <div class="col-md-6">
-                      <label class="form-label">Correo Electrónico</label>
-                      <input type="email" class="form-control" name="correo" required>
-                    </div>
-                    <div class="col-md-6">
-                      <label class="form-label">Teléfono</label>
-                      <input type="text" class="form-control" name="telefono" required>
-                    </div>
-                  </div>
-                  <div class="row mb-3" id="bloqueVerificacionIdentidad">
-                    <div class="col-12">
-                      <div class="alert alert-light border mb-3 py-2">
-                        <i class="bi bi-shield-check"></i>
-                        <strong>Verificación de identidad:</strong> obligatoria para médico, enfermero, farmacéutico y paciente.
-                        Se acepta cédula de ciudadanía, cédula de extranjería, pasaporte u otro documento oficial.
-                        <strong>No se acepta tarjeta de identidad.</strong>
-                      </div>
-                    </div>
                     <div class="col-md-4">
-                      <label class="form-label">Tipo de documento *</label>
-                      <select class="form-select" name="tipo_documento" id="tipoDocumentoAdmin" required>
-                        <?php echo opcionesHtmlTipoDocumento(); ?>
+                      <label class="form-label">Contraseña</label>
+                      <input type="password" class="form-control" name="clave" id="claveUsuario" required minlength="8" autocomplete="new-password">
+                      <small class="text-muted" id="claveHelp">Mínimo 8 caracteres con letras y números. Al editar, déjela vacía para no cambiarla.</small>
+                    </div>
+                    <div class="col-md-6" id="campoEspecialidad" style="display:none;">
+                      <label class="form-label">Especialidad del médico</label>
+                      <select class="form-select" name="especialidad" id="especialidadAdmin">
+                        <option value="">Seleccione…</option>
+                        <?php foreach (obtenerTodasEspecialidades() as $esp): ?>
+                          <option value="<?php echo htmlspecialchars($esp); ?>"><?php echo htmlspecialchars($esp); ?></option>
+                        <?php endforeach; ?>
                       </select>
                     </div>
-                    <div class="col-md-4">
-                      <label class="form-label">Número de documento *</label>
-                      <input type="text" class="form-control" name="documento" id="documentoAdmin" required placeholder="Número del documento">
+                    <div class="col-md-6" id="campoLicenciaMedica" style="display:none;">
+                      <label class="form-label">Registro médico <small class="text-muted fw-normal">(opcional)</small></label>
+                      <input type="text" class="form-control" name="licencia_medica" maxlength="50" placeholder="Ej: RM-12345">
                     </div>
-                    <div class="col-md-4" id="campoLicenciaMedica" style="display:none;">
-                      <label class="form-label">Licencia médica (opcional)</label>
-                      <input type="text" class="form-control" name="licencia_medica" placeholder="Ej: LIC-12345">
-                    </div>
-                    <div class="col-md-4" id="campoCodigoFarmacia" style="display:none;">
-                      <label class="form-label">Código empleado farmacia (opcional)</label>
-                      <input type="text" class="form-control" name="codigo_empleado" placeholder="Ej: FARM-001">
-                    </div>
-                    <div class="col-md-4" id="campoFotoDocumento" style="display:none;">
-                      <label class="form-label">Foto del documento *</label>
-                      <input type="file" class="form-control" name="foto_documento" id="fotoDocumentoAdmin" accept="image/jpeg,image/png,image/webp">
-                    </div>
-                    <div class="col-md-4" id="campoFotoSelfie" style="display:none;">
-                      <label class="form-label">Selfie con documento *</label>
-                      <input type="file" class="form-control" name="foto_selfie" id="fotoSelfieAdmin" accept="image/jpeg,image/png,image/webp">
-                      <small class="text-muted">El personal debe mostrar rostro y documento para confirmar identidad.</small>
+                    <div class="col-md-6" id="campoCodigoFarmacia" style="display:none;">
+                      <label class="form-label">Código de empleado <small class="text-muted fw-normal">(opcional)</small></label>
+                      <input type="text" class="form-control" name="codigo_empleado" maxlength="20" placeholder="Ej: FAR-001">
                     </div>
                   </div>
-                  <button type="submit" class="btn btn-success" id="btnUsuarioSubmit">Agregar Usuario</button>
-                  <button type="button" class="btn btn-secondary ms-2" id="btnCancelarEdicion" style="display:none;" onclick="resetFormularioUsuario()">Cancelar</button>
+                  <div class="row g-3 mt-0" id="bloqueVerificacionIdentidad">
+                    <div class="col-md-6">
+                      <label class="form-label">Tipo de documento</label>
+                      <select class="form-select" name="tipo_documento" id="tipoDocumentoAdmin" required>
+                        <?php echo opcionesHtmlTipoDocumento('CC'); ?>
+                      </select>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label">Número de documento</label>
+                      <input type="text" class="form-control" name="documento" id="documentoAdmin" required maxlength="20" placeholder="Número del documento">
+                    </div>
+                  </div>
+                  <div class="mt-4">
+                    <button type="submit" class="btn btn-success" id="btnUsuarioSubmit">Agregar usuario</button>
+                    <button type="button" class="btn btn-outline-secondary ms-2" id="btnCancelarEdicion" style="display:none;" onclick="resetFormularioUsuario()">Cancelar</button>
+                  </div>
                 </form>
               </div>
             </div>
@@ -761,7 +671,7 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
           <!-- Verificación de identidad -->
           <div id="verificacionPage" class="page-section">
             <h2>Verificación de identidad</h2>
-            <p class="text-muted">Revise las fotos del documento y la selfie para confirmar que la persona es real antes de permitir el acceso.</p>
+            <p class="text-muted">Compare la foto de perfil con la foto del documento y confirme que el número coincide antes de activar la cuenta.</p>
             <div class="card shadow-sm">
               <div class="card-header d-flex justify-content-between align-items-center">
                 <span>Solicitudes pendientes</span>
@@ -775,7 +685,7 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                     <?php foreach ($pendientesVerificacion as $pv):
                       $tipoLabel = tiposDocumentoIdentidad()[$pv['tipo_documento'] ?? ''] ?? ($pv['tipo_documento'] ?? 'N/A');
                       $urlDoc = urlFotoIdentidad($pv['foto_documento'] ?? null);
-                      $urlSelfie = urlFotoIdentidad($pv['foto_selfie_documento'] ?? null);
+                      $urlSelfie = urlFotoIdentidad(($pv['foto'] ?? null) ?: ($pv['foto_selfie_documento'] ?? null));
                     ?>
                       <div class="col-lg-6">
                         <div class="card border h-100">
@@ -797,13 +707,13 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                                 <?php endif; ?>
                               </div>
                               <div class="col-6">
-                                <p class="small fw-bold mb-1">Selfie con documento</p>
+                                <p class="small fw-bold mb-1">Foto de perfil</p>
                                 <?php if ($urlSelfie): ?>
                                   <a href="<?php echo htmlspecialchars($urlSelfie); ?>" target="_blank">
-                                    <img src="<?php echo htmlspecialchars($urlSelfie); ?>" alt="Selfie" class="img-fluid rounded border" style="max-height:180px;object-fit:cover;width:100%;">
+                                    <img src="<?php echo htmlspecialchars($urlSelfie); ?>" alt="Foto de perfil" class="img-fluid rounded border" style="max-height:180px;object-fit:cover;width:100%;">
                                   </a>
                                 <?php else: ?>
-                                  <span class="text-danger small">Sin selfie</span>
+                                  <span class="text-danger small">Sin foto</span>
                                 <?php endif; ?>
                               </div>
                             </div>
@@ -947,135 +857,64 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
             </div>
           </div>
 
-          <!-- Donaciones -->
-          <div id="donacionesPage" class="page-section">
-            <h2>Gestión de Donaciones</h2>
-            <div class="card shadow-sm">
-              <div class="card-header">Donaciones Registradas</div>
-              <div class="card-body">
-                <table class="table table-striped">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Nombre</th>
-                      <th>Correo</th>
-                      <th>Teléfono</th>
-                      <th>Tipo</th>
-                      <th>Monto</th>
-                      <th>Método</th>
-                      <th>Fecha</th>
-                      <th>Estado</th>
-                      <th>Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <?php 
-                    if (count($donaciones) > 0) {
-                        foreach ($donaciones as $row) {
-                            $comentarios = $row['comentarios'] ?? '';
-                            echo "<tr>";
-                            echo "<td>" . $row['id_donacion'] . "</td>";
-                            echo "<td>" . htmlspecialchars($row['nombre']) . "</td>";
-                            echo "<td>" . htmlspecialchars($row['correo']) . "</td>";
-                            echo "<td>" . htmlspecialchars($row['telefono'] ?? 'N/A') . "</td>";
-                            echo "<td><span class='badge bg-info'>" . htmlspecialchars($row['tipo_donacion']) . "</span></td>";
-                            echo "<td>" . ($row['monto'] ? '$' . number_format($row['monto'], 0) : 'N/A') . "</td>";
-                            echo "<td>" . htmlspecialchars($row['metodo_pago'] ?? 'N/A') . "</td>";
-                            echo "<td>" . date('d/m/Y H:i', strtotime($row['fecha_donacion'])) . "</td>";
-                            echo "<td><span class='badge " . ($row['estado'] == 'completada' ? 'bg-success' : ($row['estado'] == 'procesada' ? 'bg-warning' : 'bg-secondary')) . "'>" . htmlspecialchars($row['estado']) . "</span></td>";
-                            echo "<td>
-                                    <button class='btn btn-sm btn-info' onclick=\"alert(" . json_encode('Comentarios: ' . ($comentarios ?: 'Sin comentarios')) . ")\">Ver</button>
-                                    <a href='?donacion_estado=procesar&id={$row['id_donacion']}&page=donacionesPage' class='btn btn-sm btn-warning'>Procesar</a>
-                                    <a href='?donacion_estado=completar&id={$row['id_donacion']}&page=donacionesPage' class='btn btn-sm btn-success'>Completar</a>
-                                  </td>";
-                            echo "</tr>";
-                        }
-                    } else {
-                        echo "<tr><td colspan='10' class='text-center'>No hay donaciones registradas</td></tr>";
-                    }
-                    ?>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
           <!-- Citas -->
           <div id="citasPage" class="page-section">
-            <h2>Gestión de Citas Médicas</h2>
-            <div class="card shadow-sm">
-              <div class="card-header">Citas Médicas Registradas</div>
-              <div class="card-body">
-                <table class="table table-striped">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Nombre</th>
-                      <th>Teléfono</th>
-                      <th>Correo</th>
-                      <th>Servicio</th>
-                      <th>Fecha</th>
-                      <th>Hora</th>
-                      <th>Motivo</th>
-                      <th>Estado</th>
-                      <th>Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <?php 
-                    if (count($citas) > 0) {
-                        foreach ($citas as $row) {
-                            $detalle = "Paciente: {$row['nombre']}\nTel: {$row['telefono']}\nCorreo: {$row['correo']}\nServicio: {$row['servicio']}\nMotivo: " . ($row['motivo'] ?: 'N/A');
-                            $estadoCita = $row['estado'] ?? 'pendiente';
-                            $idCita = $row['id_cita'];
-                            echo "<tr>";
-                            echo "<td>" . $idCita . "</td>";
-                            echo "<td>" . htmlspecialchars($row['nombre']) . "</td>";
-                            echo "<td>" . htmlspecialchars($row['telefono']) . "</td>";
-                            echo "<td>" . htmlspecialchars($row['correo']) . "</td>";
-                            echo "<td>" . htmlspecialchars($row['servicio']) . "</td>";
-                            echo "<td>" . date('d/m/Y', strtotime($row['fecha'])) . "</td>";
-                            echo "<td>" . date('H:i', strtotime($row['hora'])) . "</td>";
-                            echo "<td>" . htmlspecialchars($row['motivo'] ? $row['motivo'] : 'N/A') . "</td>";
-                            echo "<td><span class='badge " . ($estadoCita === 'confirmada' ? 'bg-success' : ($estadoCita === 'cancelada' ? 'bg-danger' : 'bg-warning')) . "'>" . htmlspecialchars($estadoCita) . "</span></td>";
-                            echo "<td class='text-nowrap'>
-                                    <button class='btn btn-sm btn-info' onclick=\"alert(" . json_encode($detalle) . ")\">Ver</button>
-                                    " . botonEnviarWhatsAppCita($row, ['telefono' => $row['telefono']]) . "
-                                    <a href='?cita_estado=aprobar&id={$idCita}&page=citasPage' class='btn btn-sm btn-success'>Aprobar</a>
-                                    <a href='?cita_estado=cancelar&id={$idCita}&page=citasPage' class='btn btn-sm btn-danger' onclick=\"return confirm('¿Cancelar esta cita?')\">Cancelar</a>
-                                    <button class='btn btn-sm btn-primary' type='button' data-bs-toggle='collapse' data-bs-target='#editCita{$idCita}'>Editar</button>
-                                  </td>";
-                            echo "</tr>";
-                            echo "<tr class='collapse' id='editCita{$idCita}'><td colspan='10'>";
-                            echo "<form method='POST' class='row g-2 p-3 bg-light rounded'>";
-                            echo "<input type='hidden' name='accion' value='editar_cita'>";
-                            echo "<input type='hidden' name='id_cita' value='{$idCita}'>";
-                            echo "<div class='col-md-2'><input class='form-control form-control-sm' name='nombre' value='" . htmlspecialchars($row['nombre']) . "' required></div>";
-                            echo "<div class='col-md-2'><input class='form-control form-control-sm' name='telefono' value='" . htmlspecialchars($row['telefono']) . "' required></div>";
-                            echo "<div class='col-md-2'><input class='form-control form-control-sm' name='correo' type='email' value='" . htmlspecialchars($row['correo']) . "' required></div>";
-                            echo "<div class='col-md-2'><input class='form-control form-control-sm' name='servicio' value='" . htmlspecialchars($row['servicio']) . "' required></div>";
-                            echo "<div class='col-md-1'><input class='form-control form-control-sm' type='date' name='fecha' value='" . htmlspecialchars($row['fecha']) . "' required></div>";
-                            echo "<div class='col-md-1'><input class='form-control form-control-sm' type='time' name='hora' value='" . htmlspecialchars(substr($row['hora'], 0, 5)) . "' required></div>";
-                            echo "<div class='col-md-1'><select class='form-select form-select-sm' name='estado'>";
-                            foreach (['pendiente', 'confirmada', 'cancelada'] as $est) {
-                                $sel = $estadoCita === $est ? 'selected' : '';
-                                echo "<option value='{$est}' {$sel}>" . ucfirst($est) . "</option>";
-                            }
-                            echo "</select></div>";
-                            echo "<div class='col-md-2'><input class='form-control form-control-sm' name='motivo' placeholder='Motivo' value='" . htmlspecialchars($row['motivo'] ?? '') . "'></div>";
-                            echo "<div class='col-md-1'><button type='submit' class='btn btn-sm btn-success w-100'>Guardar</button></div>";
-                            echo "</form></td></tr>";
-                        }
-                    } else {
-                        echo "<tr><td colspan='10' class='text-center'>No hay citas registradas</td></tr>";
-                    }
-                    ?>
-                  </tbody>
-                </table>
+            <?php
+              $filtroEstado = $_GET['estado'] ?? '';
+              $citasFiltradas = $filtroEstado !== '' && isset(estadosCita()[$filtroEstado])
+                  ? array_values(array_filter($citas, fn($c) => ($c['estado'] ?: 'pendiente') === $filtroEstado))
+                  : $citas;
+            ?>
+            <div class="d-flex justify-content-between align-items-end flex-wrap gap-3 mb-3">
+              <div class="panel-page-head mb-0">
+                <h2><i class="bi bi-calendar-check"></i> Citas médicas</h2>
+                <p class="mb-0">Supervisión de la agenda. Recepción confirma las solicitudes asignando médico y consultorio, y registra las llegadas.</p>
               </div>
+              <form method="GET" class="d-flex gap-2">
+                <input type="hidden" name="page" value="citasPage">
+                <select name="estado" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="Filtrar por estado">
+                  <option value="">Todos los estados (<?php echo count($citas); ?>)</option>
+                  <?php foreach (estadosCita() as $clave => [$texto]): $n = count(array_filter($citas, fn($c) => ($c['estado'] ?: 'pendiente') === $clave)); ?>
+                    <option value="<?php echo $clave; ?>"<?php echo $filtroEstado === $clave ? ' selected' : ''; ?>><?php echo $texto . " ($n)"; ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </form>
+            </div>
+            <div class="card">
+              <?php if ($citasFiltradas): ?>
+                <div class="table-responsive">
+                  <table class="table table-hover mb-0 align-middle">
+                    <thead><tr><th>#</th><th>Fecha</th><th>Paciente</th><th>Especialidad</th><th>Médico</th><th>Canal</th><th>Estado</th><th class="text-end">Acciones</th></tr></thead>
+                    <tbody>
+                      <?php foreach ($citasFiltradas as $row): $est = $row['estado'] ?: 'pendiente'; ?>
+                        <tr>
+                          <td class="text-muted"><?php echo (int) $row['id_cita']; ?></td>
+                          <td class="text-nowrap"><?php echo date('d/m/Y', strtotime($row['fecha'])); ?><br><small class="text-muted"><?php echo date('g:i a', strtotime($row['hora'])); ?></small></td>
+                          <td><strong><?php echo htmlspecialchars($row['nombre']); ?></strong><br><small class="text-muted"><?php echo htmlspecialchars(trim(($row['telefono'] ?? '') . ' · ' . ($row['correo'] ?? ''), ' ·')); ?></small></td>
+                          <td><?php echo htmlspecialchars($row['servicio']); ?><?php if (!empty($row['motivo'])): ?><br><small class="text-muted" title="<?php echo htmlspecialchars($row['motivo']); ?>"><?php echo htmlspecialchars(mb_strimwidth($row['motivo'], 0, 40, '…')); ?></small><?php endif; ?></td>
+                          <td><?php echo htmlspecialchars($row['nombre_medico'] ?: '—'); ?><br><small class="text-muted"><?php echo htmlspecialchars($row['consultorio'] ?? ''); ?></small></td>
+                          <td><?php echo htmlspecialchars(origenesCita()[$row['origen'] ?? 'web'] ?? 'En línea'); ?></td>
+                          <td><?php echo badgeEstadoCita($est); ?></td>
+                          <td class="text-end text-nowrap">
+                            <?php echo botonEnviarWhatsAppCita($row, ['telefono' => $row['telefono']]); ?>
+                            <?php if (in_array('cancelada', transicionesCita()[$est] ?? [], true)): ?>
+                              <form method="POST" class="d-inline" onsubmit="return confirm('¿Cancelar esta cita? Se avisará al paciente.')">
+                                <input type="hidden" name="accion" value="cancelar_cita">
+                                <input type="hidden" name="id_cita" value="<?php echo (int) $row['id_cita']; ?>">
+                                <button class="btn btn-sm btn-outline-danger">Cancelar</button>
+                              </form>
+                            <?php endif; ?>
+                          </td>
+                        </tr>
+                      <?php endforeach; ?>
+                    </tbody>
+                  </table>
+                </div>
+              <?php else: ?>
+                <div class="panel-empty"><i class="bi bi-calendar2"></i><p>No hay citas con ese estado.</p></div>
+              <?php endif; ?>
             </div>
           </div>
-
           <!-- Contactos -->
           <div id="contactosPage" class="page-section">
             <h2>Gestión de Contactos</h2>
@@ -1195,31 +1034,32 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
     }
 
     function editarUsuario(datos) {
+      const f = document.getElementById('formUsuario');
       document.getElementById('accionUsuario').value = 'editar_guardar';
       document.getElementById('idUsuarioEdit').value = datos.id_usuario;
-      document.querySelector('#formUsuario input[name="nombre"]').value = datos.nombre;
-      document.querySelector('#formUsuario input[name="apellido"]').value = datos.apellido;
-      document.querySelector('#formUsuario input[name="usuario"]').value = datos.usuario;
-      document.querySelector('#formUsuario input[name="correo"]').value = datos.correo;
-      document.querySelector('#formUsuario input[name="telefono"]').value = datos.telefono;
-      document.querySelector('#formUsuario select[name="rol"]').value = datos.rol;
-      document.querySelector('#formUsuario select[name="estado"]').value = datos.estado;
+      f.querySelector('input[name="nombre"]').value = datos.nombre;
+      f.querySelector('input[name="apellido"]').value = datos.apellido;
+      f.querySelector('input[name="correo"]').value = datos.correo;
+      f.querySelector('input[name="telefono"]').value = datos.telefono;
+      f.querySelector('select[name="rol"]').value = datos.rol;
+      f.querySelector('select[name="estado"]').value = datos.estado;
+      document.getElementById('especialidadAdmin').value = datos.especialidad || '';
+      document.getElementById('claveUsuario').value = '';
       document.getElementById('claveUsuario').removeAttribute('required');
-      document.getElementById('formUsuarioTitulo').textContent = 'Editar Usuario';
-      document.getElementById('btnUsuarioSubmit').textContent = 'Guardar Cambios';
+      document.getElementById('formUsuarioTitulo').textContent = 'Editar usuario';
+      document.getElementById('btnUsuarioSubmit').textContent = 'Guardar cambios';
       document.getElementById('btnCancelarEdicion').style.display = 'inline-block';
       actualizarCamposIdentidadAdmin();
       showPage('usuariosPage');
-      document.getElementById('formUsuario').scrollIntoView({ behavior: 'smooth' });
+      f.scrollIntoView({ behavior: 'smooth' });
     }
-
     function resetFormularioUsuario() {
       document.getElementById('formUsuario').reset();
       document.getElementById('accionUsuario').value = 'agregar';
       document.getElementById('idUsuarioEdit').value = '';
       document.getElementById('claveUsuario').setAttribute('required', 'required');
-      document.getElementById('formUsuarioTitulo').textContent = 'Agregar Nuevo Usuario';
-      document.getElementById('btnUsuarioSubmit').textContent = 'Agregar Usuario';
+      document.getElementById('formUsuarioTitulo').textContent = 'Agregar nuevo usuario';
+      document.getElementById('btnUsuarioSubmit').textContent = 'Agregar usuario';
       document.getElementById('btnCancelarEdicion').style.display = 'none';
       actualizarCamposIdentidadAdmin();
     }
@@ -1235,28 +1075,16 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
     function actualizarCamposIdentidadAdmin() {
       const rol = document.querySelector('#formUsuario select[name="rol"]')?.value || '';
       const esAgregar = document.getElementById('accionUsuario').value === 'agregar';
-      const bloque = document.getElementById('bloqueVerificacionIdentidad');
       const tipoDoc = document.getElementById('tipoDocumentoAdmin');
       const numDoc = document.getElementById('documentoAdmin');
-      const requiereDoc = ['medico', 'enfermero', 'farmaceuta', 'paciente', 'admin'].includes(rol);
-
-      bloque.style.display = esAgregar ? '' : 'none';
-      if (tipoDoc) tipoDoc.required = esAgregar && requiereDoc;
-      if (numDoc) numDoc.required = esAgregar && requiereDoc;
-
-      document.getElementById('campoLicenciaMedica').style.display = rol === 'medico' ? '' : 'none';
-      document.getElementById('campoCodigoFarmacia').style.display = rol === 'farmaceuta' ? '' : 'none';
-
-      const requiereFotos = ['medico', 'enfermero', 'farmaceuta'].includes(rol);
-      document.getElementById('campoFotoDocumento').style.display = esAgregar && requiereFotos ? '' : 'none';
-      document.getElementById('campoFotoSelfie').style.display = esAgregar && requiereFotos ? '' : 'none';
-      const fotoDoc = document.getElementById('fotoDocumentoAdmin');
-      const fotoSelfie = document.getElementById('fotoSelfieAdmin');
-      if (fotoDoc) fotoDoc.required = esAgregar && requiereFotos;
-      if (fotoSelfie) fotoSelfie.required = esAgregar && requiereFotos;
-
-      const tipo = tipoDoc?.value || '';
-      if (numDoc) numDoc.placeholder = placeholdersAdmin[tipo] || 'Número del documento';
+      document.getElementById('bloqueVerificacionIdentidad').style.display = esAgregar ? '' : 'none';
+      if (tipoDoc) tipoDoc.required = esAgregar;
+      if (numDoc) numDoc.required = esAgregar;
+      document.getElementById('campoEspecialidad').style.display = rol === 'medico' ? '' : 'none';
+      document.getElementById('especialidadAdmin').required = rol === 'medico';
+      document.getElementById('campoLicenciaMedica').style.display = rol === 'medico' && esAgregar ? '' : 'none';
+      document.getElementById('campoCodigoFarmacia').style.display = rol === 'farmaceuta' && esAgregar ? '' : 'none';
+      if (numDoc) numDoc.placeholder = placeholdersAdmin[tipoDoc?.value || ''] || 'Número del documento';
     }
 
     document.querySelector('#formUsuario select[name="rol"]')?.addEventListener('change', actualizarCamposIdentidadAdmin);

@@ -12,9 +12,16 @@ function actualizarPerfilStaff(mysqli $conexion, int $idUsuario, array $datos): 
 {
     $nom = trim($datos['nombre'] ?? '');
     $ape = trim($datos['apellido'] ?? '');
-    $cor = trim($datos['correo'] ?? '');
+    $cor = strtolower(trim($datos['correo'] ?? ''));
     $tel = trim($datos['telefono'] ?? '');
-    if ($nom === '') {
+    if ($nom === '' || !filter_var($cor, FILTER_VALIDATE_EMAIL)) {
+        return false;
+    }
+    // El correo es el usuario de ingreso: no puede repetirse
+    $chk = $conexion->prepare('SELECT 1 FROM usuario WHERE LOWER(correo) = ? AND id_usuario <> ? LIMIT 1');
+    $chk->bind_param('si', $cor, $idUsuario);
+    $chk->execute();
+    if ($chk->get_result()->fetch_row()) {
         return false;
     }
     $stmt = $conexion->prepare("UPDATE usuario SET nombre = ?, apellido = ?, correo = ?, telefono = ? WHERE id_usuario = ?");

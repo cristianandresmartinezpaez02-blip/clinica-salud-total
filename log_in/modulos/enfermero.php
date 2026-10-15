@@ -15,6 +15,7 @@ require_once __DIR__ . '/../includes/panel_layout.php';
 require_once "../conexion/conexion.php";
 require_once "../conexion/notificaciones_servicio.php";
 require_once "../conexion/contacto_servicio.php";
+require_once "../conexion/citas_servicio.php";
 
 asegurarEsquemaNotificaciones($conexion);
 
@@ -32,51 +33,7 @@ function fetchAllEnf(mysqli $conexion, string $sql): array {
     return $rows;
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'aprobar_cita') {
-    $idCita = intval($_POST['id_cita']);
-    $citaData = fetchAllEnf($conexion, "SELECT * FROM cita WHERE id_cita = $idCita");
-    $cita = $citaData[0] ?? null;
-
-    if ($cita) {
-        $form = [
-            'nombre_paciente'      => trim($_POST['nombre_paciente'] ?? $cita['nombre']),
-            'fecha_cita'           => trim($_POST['fecha_cita'] ?? ''),
-            'hora_cita'            => trim($_POST['hora_cita'] ?? ''),
-            'nombre_medico'        => trim($_POST['nombre_medico'] ?? ''),
-            'especialidad'         => trim($_POST['especialidad'] ?? ''),
-            'nombre_clinica'       => trim($_POST['nombre_clinica'] ?? CLINICA_NOMBRE_DEFAULT),
-            'direccion_clinica'    => trim($_POST['direccion_clinica'] ?? CLINICA_DIRECCION_DEFAULT),
-            'consultorio'          => trim($_POST['consultorio'] ?? ''),
-            'telefono_clinica'     => trim($_POST['telefono_clinica'] ?? CLINICA_TELEFONO_DEFAULT),
-            'correo_paciente'      => trim($_POST['correo_paciente'] ?? $cita['correo']),
-            'telefono_paciente'    => trim($_POST['telefono_paciente'] ?? $cita['telefono']),
-            'telefono_acompanante' => trim($_POST['telefono_acompanante'] ?? ''),
-        ];
-        if (empty($form['fecha_cita']) && !empty($cita['fecha'])) {
-            $form['fecha_cita'] = date('d/m/Y', strtotime($cita['fecha']));
-        }
-        if (empty($form['hora_cita']) && !empty($cita['hora'])) {
-            $form['hora_cita'] = date('H:i', strtotime($cita['hora']));
-        }
-
-        $resultados = notificarCitaAprobada($conexion, $cita, $form);
-        $mensaje = 'Cita enviada exitosamente.';
-        $pageRedirect = 'citasPage';
-
-        insertarNotificacionRol($conexion, 'enfermero', "Cita aprobada: {$form['nombre_paciente']} — {$form['fecha_cita']} {$form['hora_cita']}", 'cita_aprobada');
-    } else {
-        $mensaje = '❌ No se encontró la cita.';
-    }
-}
-
-if (isset($_GET['cita_accion'], $_GET['id']) && $_GET['cita_accion'] === 'cancelar') {
-    $idCita = intval($_GET['id']);
-    $stmt = $conexion->prepare("UPDATE cita SET estado = 'cancelada' WHERE id_cita = ?");
-    $stmt->bind_param("i", $idCita);
-    $stmt->execute();
-    $mensaje = '🚫 Cita cancelada.';
-    $pageRedirect = 'citasPage';
-}
+// La agenda (confirmar, cancelar, marcar llegada) la maneja Recepción. Enfermería consulta los pacientes del día.
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'responder_contacto') {
     $idContacto = (int) ($_POST['id_contacto'] ?? 0);
@@ -94,7 +51,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'respo
     $pageRedirect = 'contactosPage';
 }
 
-$citas = fetchAllEnf($conexion, "SELECT * FROM cita ORDER BY fecha DESC, hora DESC");
+asegurarEsquemaCitas($conexion);
+$fechaEnf = $_GET['fecha'] ?? date('Y-m-d');
+if (!DateTime::createFromFormat('Y-m-d', $fechaEnf)) {
+    $fechaEnf = date('Y-m-d');
+}
+$citas = agendaDelDia($conexion, $fechaEnf);
 foreach ($citas as &$citaEnf) {
     if (empty($citaEnf['telefono'])) {
         $citaEnf['telefono'] = obtenerTelefonoPacienteCita($conexion, $citaEnf);
@@ -105,8 +67,14 @@ $contactos = obtenerContactos($conexion);
 $notificaciones = fetchAllEnf($conexion, "SELECT * FROM notificaciones WHERE tipo_usuario IN ('enfermero', 'sistema') ORDER BY fecha DESC LIMIT 15");
 
 $hoy = date('Y-m-d');
+if (isset($_GET['page'])) {
+    $pageRedirect = preg_replace('/[^a-zA-Z0-9_]/', '', $_GET['page']);
+}
 $citasHoyCount = count(array_filter($citas, fn($c) => ($c['fecha'] ?? '') === $hoy));
-$citasPendientes = count(array_filter($citas, fn($c) => ($c['estado'] ?? 'pendiente') === 'pendiente'));
+$agendaHoyEnf = $fechaEnf === $hoy ? $citas : agendaDelDia($conexion, $hoy);
+$citasHoyCount = count($agendaHoyEnf);
+$enSalaEnf = array_values(array_filter($agendaHoyEnf, fn($c) => ($c['estado'] ?? '') === 'en_sala'));
+$atendidasEnf = count(array_filter($agendaHoyEnf, fn($c) => ($c['estado'] ?? '') === 'atendida'));
 
 // Mi perfil y Configuración (procesa sus formularios y prepara los datos)
 $rolLabelModulo = 'Enfermería';
@@ -138,7 +106,7 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
             <nav class="col-md-2 d-none d-md-block sidebar">
             <?php echo panelBrand('Enfermería'); ?>
                 <a href="#" class="active" data-page="dashboardPage"><i class="bi bi-grid-1x2"></i> Resumen</a>
-                <a href="#" data-page="citasPage"><i class="bi bi-calendar-check"></i> Citas Médicas</a>
+                <a href="#" data-page="citasPage"><i class="bi bi-calendar-day"></i> Agenda del día</a>
                 <a href="#" data-page="contactosPage"><i class="bi bi-envelope"></i> Contactos</a>
             <?php echo panelSidebarFooter(true); ?>
             </nav>
@@ -164,23 +132,39 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
 
                 <div class="content">
                     <div id="dashboardPage" class="page-section active">
-                        <h2>Panel de Control Enfermería</h2>
+                        <h2>Enfermería</h2>
+                        <p class="text-muted">Pacientes del día y quiénes esperan en sala.</p>
                         <div class="row mt-4 g-3">
                             <div class="col-md-4">
                                 <div class="card bg-danger text-white">
-                                    <div class="card-body"><h6>Citas Hoy</h6><h2><?php echo $citasHoyCount; ?></h2></div>
+                                    <div class="card-body"><h6>Citas hoy</h6><h2><?php echo $citasHoyCount; ?></h2></div>
                                 </div>
                             </div>
                             <div class="col-md-4">
                                 <div class="card bg-warning text-dark">
-                                    <div class="card-body"><h6>Pendientes de aprobar</h6><h2><?php echo $citasPendientes; ?></h2></div>
+                                    <div class="card-body"><h6>En sala</h6><h2><?php echo count($enSalaEnf); ?></h2></div>
                                 </div>
                             </div>
                             <div class="col-md-4">
                                 <div class="card bg-info text-white">
-                                    <div class="card-body"><h6>Total Citas</h6><h2><?php echo count($citas); ?></h2></div>
+                                    <div class="card-body"><h6>Atendidas hoy</h6><h2><?php echo $atendidasEnf; ?></h2></div>
                                 </div>
                             </div>
+                        </div>
+                        <div class="card mt-4">
+                            <div class="card-header"><i class="bi bi-person-raised-hand me-2"></i>Pacientes en sala</div>
+                            <?php if ($enSalaEnf): ?>
+                                <ul class="list-group list-group-flush">
+                                    <?php foreach ($enSalaEnf as $c): ?>
+                                        <li class="list-group-item d-flex justify-content-between flex-wrap gap-2">
+                                            <span><strong><?php echo htmlspecialchars($c['nombre']); ?></strong> · <?php echo htmlspecialchars($c['servicio']); ?></span>
+                                            <span class="text-muted small"><?php echo htmlspecialchars($c['nombre_medico'] ?? ''); ?><?php echo !empty($c['consultorio']) ? ' · Consultorio ' . htmlspecialchars($c['consultorio']) : ''; ?><?php echo $c['fecha_llegada'] ? ' · llegó ' . date('g:i a', strtotime($c['fecha_llegada'])) : ''; ?></span>
+                                        </li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            <?php else: ?>
+                                <div class="panel-empty"><i class="bi bi-cup-hot"></i><p>No hay pacientes esperando.</p></div>
+                            <?php endif; ?>
                         </div>
                         <div class="card mt-4">
                             <div class="card-header fw-bold">Notificaciones</div>
@@ -200,57 +184,35 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                     </div>
 
                     <div id="citasPage" class="page-section">
-                        <h2>Citas Médicas</h2>
-                        <p class="text-muted">Apruebe la cita completando el formulario. El paciente recibirá la información en su panel, correo y WhatsApp.</p>
+                        <div class="d-flex justify-content-between align-items-end flex-wrap gap-3 mb-3">
+                            <div><h2 class="mb-1">Agenda del día</h2><p class="text-muted mb-0">Consulta de la agenda. Las citas las confirma y modifica Recepción.</p></div>
+                            <form method="GET" class="d-flex gap-2"><input type="hidden" name="page" value="citasPage"><input type="date" name="fecha" class="form-control form-control-sm" value="<?php echo htmlspecialchars($fechaEnf); ?>" onchange="this.form.submit()" aria-label="Fecha"></form>
+                        </div>
                         <div class="card shadow-sm">
                             <div class="card-body table-responsive">
                                 <table class="table table-hover align-middle">
                                     <thead class="table-light">
                                         <tr>
-                                            <th>ID</th><th>Paciente</th><th>Teléfono</th><th>Correo</th>
-                                            <th>Servicio</th><th>Fecha</th><th>Hora</th><th>Estado</th><th>Acciones</th>
+                                            <th>Hora</th><th>Paciente</th><th>Teléfono</th><th>Especialidad</th><th>Médico</th><th>Consultorio</th><th>Estado</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                     <?php if (count($citas) > 0): ?>
                                         <?php foreach ($citas as $row):
                                             $est = $row['estado'] ?? 'pendiente';
-                                            $badge = match($est) {
-                                                'confirmada' => 'bg-primary',
-                                                'atendida' => 'bg-success',
-                                                'cancelada' => 'bg-danger',
-                                                default => 'bg-warning text-dark'
-                                            };
                                         ?>
                                         <tr>
-                                            <td><?php echo $row['id_cita']; ?></td>
+                                            <td class="fw-semibold text-nowrap"><?php echo date('g:i a', strtotime($row['hora'])); ?></td>
                                             <td><strong><?php echo htmlspecialchars($row['nombre']); ?></strong></td>
-                                            <td><?php echo htmlspecialchars($row['telefono']); ?></td>
-                                            <td><?php echo htmlspecialchars($row['correo']); ?></td>
+                                            <td><?php echo htmlspecialchars($row['telefono'] ?? ''); ?></td>
                                             <td><?php echo htmlspecialchars($row['servicio']); ?></td>
-                                            <td><?php echo date('d/m/Y', strtotime($row['fecha'])); ?></td>
-                                            <td><?php echo date('H:i', strtotime($row['hora'])); ?></td>
-                                            <td><span class="badge <?php echo $badge; ?>"><?php echo ucfirst($est); ?></span></td>
-                                            <td class="text-nowrap">
-                                                <?php if ($est === 'pendiente'): ?>
-                                                <button type="button" class="btn btn-sm btn-success btn-aprobar-cita"
-                                                    data-id="<?php echo $row['id_cita']; ?>"
-                                                    data-nombre="<?php echo htmlspecialchars($row['nombre'], ENT_QUOTES); ?>"
-                                                    data-fecha="<?php echo date('d/m/Y', strtotime($row['fecha'])); ?>"
-                                                    data-hora="<?php echo date('H:i', strtotime($row['hora'])); ?>"
-                                                    data-correo="<?php echo htmlspecialchars($row['correo'] ?? '', ENT_QUOTES); ?>"
-                                                    data-telefono="<?php echo htmlspecialchars($row['telefono'] ?? '', ENT_QUOTES); ?>">
-                                                    <i class="bi bi-check-lg"></i> Aprobar
-                                                </button>
-                                                <a href="?cita_accion=cancelar&id=<?php echo $row['id_cita']; ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('¿Cancelar?')"><i class="bi bi-x-lg"></i></a>
-                                                <?php elseif ($est === 'confirmada'): ?>
-                                                <span class="badge bg-primary"><i class="bi bi-check"></i> Confirmada</span>
-                                                <?php endif; ?>
-                                            </td>
+                                            <td><?php echo htmlspecialchars($row['nombre_medico'] ?: '—'); ?></td>
+                                            <td><?php echo htmlspecialchars($row['consultorio'] ?? ''); ?></td>
+                                            <td><?php echo badgeEstadoCita($est); ?></td>
                                         </tr>
                                         <?php endforeach; ?>
                                     <?php else: ?>
-                                        <tr><td colspan="9" class="text-center text-muted py-4">No hay citas</td></tr>
+                                        <tr><td colspan="7" class="text-center text-muted py-4">No hay citas para este día</td></tr>
                                     <?php endif; ?>
                                     </tbody>
                                 </table>
@@ -300,77 +262,6 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
         </div>
     </div>
 
-    <div class="modal fade" id="modalAprobarCita" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <form method="POST">
-                    <input type="hidden" name="accion" value="aprobar_cita">
-                    <input type="hidden" name="id_cita" id="aprobar_id_cita">
-                    <div class="modal-header bg-success text-white">
-                        <h5 class="modal-title"><i class="bi bi-calendar-check"></i> Información de la Cita Médica</h5>
-                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-                        <p class="text-muted small">Los datos se envían al panel del paciente, correo, WhatsApp y celular.</p>
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label">Nombre del paciente *</label>
-                                <input type="text" class="form-control" name="nombre_paciente" id="aprobar_nombre" required>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">Fecha de la cita *</label>
-                                <input type="text" class="form-control" name="fecha_cita" id="aprobar_fecha" required>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">Hora de la cita *</label>
-                                <input type="text" class="form-control" name="hora_cita" id="aprobar_hora" required>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Nombre del médico *</label>
-                                <input type="text" class="form-control" name="nombre_medico" placeholder="Dr. Nombre Apellido" required>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Especialidad *</label>
-                                <input type="text" class="form-control" name="especialidad" placeholder="Ej: Medicina General" required>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Nombre de la clínica u hospital *</label>
-                                <input type="text" class="form-control" name="nombre_clinica" value="<?php echo htmlspecialchars(CLINICA_NOMBRE_DEFAULT); ?>" required>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Teléfono de contacto *</label>
-                                <input type="text" class="form-control" name="telefono_clinica" value="<?php echo htmlspecialchars(CLINICA_TELEFONO_DEFAULT); ?>" required>
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label">Dirección completa *</label>
-                                <input type="text" class="form-control" name="direccion_clinica" value="<?php echo htmlspecialchars(CLINICA_DIRECCION_DEFAULT); ?>" required>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Consultorio o sala *</label>
-                                <input type="text" class="form-control" name="consultorio" required>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Correo del paciente *</label>
-                                <input type="email" class="form-control" name="correo_paciente" id="aprobar_correo" required>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">WhatsApp / teléfono del paciente *</label>
-                                <input type="text" class="form-control" name="telefono_paciente" id="aprobar_telefono" required>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">WhatsApp del acompañante (opcional)</label>
-                                <input type="text" class="form-control" name="telefono_acompanante">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                        <button type="submit" class="btn btn-success"><i class="bi bi-whatsapp"></i> Aprobar y enviar por WhatsApp</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
 
     <div class="modal fade" id="modalContactoEnf" tabindex="-1">
         <div class="modal-dialog modal-lg">
@@ -418,21 +309,6 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
 
         if (defaultPage && document.getElementById(defaultPage)) showPage(defaultPage);
 
-        const modalAprobar = document.getElementById('modalAprobarCita');
-        if (modalAprobar) {
-            const bsModal = new bootstrap.Modal(modalAprobar);
-            document.querySelectorAll('.btn-aprobar-cita').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    document.getElementById('aprobar_id_cita').value = btn.dataset.id;
-                    document.getElementById('aprobar_nombre').value = btn.dataset.nombre || '';
-                    document.getElementById('aprobar_fecha').value = btn.dataset.fecha || '';
-                    document.getElementById('aprobar_hora').value = btn.dataset.hora || '';
-                    document.getElementById('aprobar_correo').value = btn.dataset.correo || '';
-                    document.getElementById('aprobar_telefono').value = btn.dataset.telefono || '';
-                    bsModal.show();
-                });
-            });
-        }
 
         const modalContactoEnf = document.getElementById('modalContactoEnf');
         if (modalContactoEnf) {

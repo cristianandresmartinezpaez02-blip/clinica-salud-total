@@ -63,7 +63,11 @@ CREATE TABLE `cita` (
   `nombre_clinica` varchar(150) DEFAULT NULL,
   `direccion_clinica` varchar(250) DEFAULT NULL,
   `consultorio` varchar(50) DEFAULT NULL,
-  `telefono_clinica` varchar(20) DEFAULT NULL
+  `telefono_clinica` varchar(20) DEFAULT NULL,
+  `id_medico_usuario` int(11) DEFAULT NULL,
+  `origen` varchar(20) DEFAULT 'web',
+  `fecha_llegada` datetime DEFAULT NULL,
+  `registrada_por` varchar(120) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 
@@ -602,7 +606,7 @@ CREATE TABLE `usuario` (
   `correo` varchar(100) DEFAULT NULL,
   `telefono` varchar(20) DEFAULT NULL,
   `clave` varchar(255) NOT NULL,
-  `rol` enum('admin','medico','enfermero','farmaceuta','paciente') NOT NULL,
+  `rol` enum('admin','recepcion','medico','enfermero','farmaceuta','paciente') NOT NULL,
   `foto` varchar(255) DEFAULT NULL,
   `estado` enum('activo','inactivo') DEFAULT 'activo',
   `fecha_registro` timestamp NOT NULL DEFAULT current_timestamp(),
@@ -624,13 +628,15 @@ CREATE TABLE `usuario` (
 --
 
 INSERT INTO `usuario` (`id_usuario`, `nombre`, `apellido`, `usuario`, `correo`, `telefono`, `clave`, `rol`, `foto`, `estado`, `fecha_registro`, `documento`, `tipo_documento`, `verificacion_identidad`, `foto_documento`, `foto_selfie_documento`, `fecha_verificacion_identidad`, `verificado_por`, `motivo_rechazo_identidad`, `acepto_tratamiento_datos`, `fecha_acepto_tratamiento`) VALUES
-(1, 'Ana', 'Administradora', 'admin', 'admin@demo.local', '3000000001', '$2y$10$k4F2wEcdAhUS2oOanLG3MOETGWo1F8JA06hPoJF2jfTVUF3Bf/qW6', 'admin', NULL, 'activo', '2026-01-01 08:00:00', '1000000001', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
-(2, 'Mario', 'Médico', 'medico', 'medico@demo.local', '3000000002', '$2y$10$8J.DJX29xDhSIKlwnz/iuuLHtzN60M43o2DNt5nbxOjuViJW9UfQi', 'medico', NULL, 'activo', '2026-01-01 08:00:00', '1000000002', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
-(3, 'Elena', 'Enfermera', 'enfermero', 'enfermero@demo.local', '3000000003', '$2y$10$W3mPviprD..IxJe1hslii.HCQPiHpAU.4.CfW5BcApPN6o.1gAax2', 'enfermero', NULL, 'activo', '2026-01-01 08:00:00', '1000000003', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
-(4, 'Felipe', 'Farmacia', 'farmacia', 'farmacia@demo.local', '3000000004', '$2y$10$TVmMau2PNQyAbR51dXHRHuhCYZ9sCbh..g8iof.OxbS3IDBvwd28y', 'farmaceuta', NULL, 'activo', '2026-01-01 08:00:00', '1000000004', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
-(5, 'Paula', 'Paciente', 'paciente', 'paciente@demo.local', '3000000005', '$2y$10$nsgzaK25Aa9Wh9ib6AAp5e0f/9W9dLE2ABgqXMG.xSVq0eDZAsBhK', 'paciente', NULL, 'activo', '2026-01-01 08:00:00', '1000000005', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00');
+(1, 'Ana', 'Administradora', 'admin', 'admin@demo.local', '3000000001', '$2y$10$2g6vwmTR3UpLanBm/l6il.Ui4jchUG89VqiBSMmGhVOqvaxtcSPXm', 'admin', NULL, 'activo', '2026-01-01 08:00:00', '1000000001', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
+(2, 'Mario', 'Médico', 'medico', 'medico@demo.local', '3000000002', '$2y$10$Tg3dWraXt/OAiJLA0JtA4uPy7I6jhIzF3auGOZk9WenkcuskIZY2C', 'medico', NULL, 'activo', '2026-01-01 08:00:00', '1000000002', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
+(3, 'Elena', 'Enfermera', 'enfermero', 'enfermero@demo.local', '3000000003', '$2y$10$ZXE4VvqmQblxoaEevki3UuJ2KlOH7ANZDbz/YdZR8kGArrn.tuFuC', 'enfermero', NULL, 'activo', '2026-01-01 08:00:00', '1000000003', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
+(4, 'Felipe', 'Farmacia', 'farmacia', 'farmacia@demo.local', '3000000004', '$2y$10$j7zi8AVKNWYQ.DJzSgGhluGvrCanudibsu.0odn0mvMgGtUPzxNoe', 'farmaceuta', NULL, 'activo', '2026-01-01 08:00:00', '1000000004', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
+(5, 'Paula', 'Paciente', 'paciente', 'paciente@demo.local', '3000000005', '$2y$10$1GQdQQccY9R2phhQ9s0T/.vxPGFGeD/pBLxyu67OacbQBX.OPdNRi', 'paciente', NULL, 'activo', '2026-01-01 08:00:00', '1000000005', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
+(6, 'Rosa', 'Recepción', 'recepcion', 'recepcion@demo.local', '3000000006', '$2y$10$UU9J3EpgP/od5N3heZe/JOFyYp46QyHoMZ7oHLzoHwC/O7qbJf2ba', 'recepcion', NULL, 'activo', '2026-01-01 08:00:00', '1000000006', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00'),
+(7, 'Laura', 'Pediatra', 'pediatra', 'pediatra@demo.local', '3000000007', '$2y$10$1mLIhm4W2VvbDEEhQTMhg.OyIs8pEhlfqwZcBQbBkvjNr5ulZSm0G', 'medico', NULL, 'activo', '2026-01-01 08:00:00', '1000000007', 'CC', 'aprobada', NULL, NULL, '2026-01-01 08:00:00', 'Sistema', NULL, 1, '2026-01-01 08:00:00');
 
-INSERT INTO `medico` (`id_medico`, `id_usuario`, `especialidad`, `licencia_medica`) VALUES (1, 2, 'Medicina General', 'RM-0001');
+INSERT INTO `medico` (`id_medico`, `id_usuario`, `especialidad`, `licencia_medica`) VALUES (1, 2, 'Medicina General', 'RM-0001'), (2, 7, 'Pediatría', 'RM-0002');
 INSERT INTO `enfermero` (`id_enfermero`, `id_usuario`, `area`) VALUES (1, 3, 'Urgencias');
 INSERT INTO `farmaceuta` (`id_farmaceuta`, `id_usuario`, `codigo_empleado`) VALUES (1, 4, 'FAR-0001');
 INSERT INTO `paciente` (`id_paciente`, `id_usuario`, `documento`, `fecha_nacimiento`, `sexo`, `direccion`) VALUES (1, 5, '1000000005', '1990-05-15', 'Femenino', 'Calle de ejemplo 123');
@@ -894,7 +900,7 @@ ALTER TABLE `medicamento`
 -- AUTO_INCREMENT de la tabla `medico`
 --
 ALTER TABLE `medico`
-  MODIFY `id_medico` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id_medico` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT de la tabla `notificaciones`
@@ -936,7 +942,7 @@ ALTER TABLE `receta`
 -- AUTO_INCREMENT de la tabla `usuario`
 --
 ALTER TABLE `usuario`
-  MODIFY `id_usuario` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `id_usuario` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
 
 --
 -- Restricciones para tablas volcadas

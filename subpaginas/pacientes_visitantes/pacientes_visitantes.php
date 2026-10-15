@@ -1,3 +1,4 @@
+<?php require_once __DIR__ . '/../../config/bootstrap.php'; iniciarSesion(); ?>
 
 <!DOCTYPE html>
 <html lang="es">
@@ -382,7 +383,6 @@
         <div class="meta">Horario: Lunes a viernes 6:00 - 18:00 | Urgencias 24/7</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Admisiones y procesos de ingreso')">Agendar cita</a>
         </div>
       </article>
 
@@ -398,7 +398,6 @@
         <div class="meta">Sugerencia: coordinar visitas con el equipo tratante para evitar molestias al paciente.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Horarios de visita')">Agendar visita</a>
         </div>
       </article>
 
@@ -414,7 +413,6 @@
         <div class="meta">Contacto anestesia: anestesia@clinicasaludtotal.example</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Preparación preoperatoria')">Agendar valoración</a>
         </div>
       </article>
 
@@ -430,7 +428,6 @@
         <div class="meta">Oficina de facturación: facturacion@clinicasaludtotal.example</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Facturación y convenios')">Solicitar cita facturación</a>
         </div>
       </article>
 
@@ -446,7 +443,6 @@
         <div class="meta">Atención al paciente: atencion@clinicasaludtotal.example</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Atención al paciente')">Contactar ahora</a>
         </div>
       </article>
 
@@ -461,7 +457,6 @@
         <div class="meta">Servicios complementarios: traslado, valet, transporte para pacientes con movilidad reducida.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Transporte y parqueadero')">Solicitar traslado</a>
         </div>
       </article>
 
@@ -477,7 +472,6 @@
         <div class="meta">Farmacia: farmacia@clinicasaludtotal.example — Horario: 7:00 - 21:00</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Farmacia')">Reservar medicamento</a>
         </div>
       </article>
 
@@ -496,7 +490,6 @@
         <div class="meta">Consulte la guía completa adjunta en recursos.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Guía preoperatoria I')">Solicitar valoración</a>
         </div>
       </article>
 
@@ -512,7 +505,6 @@
         <div class="meta">Información ampliada disponible en la guía descargable.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Guía preoperatoria II')">Solicitar cita preanestésica</a>
         </div>
       </article>
 
@@ -528,7 +520,6 @@
         <div class="meta">Reglas sujetas a cambios según situación epidemiológica.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Reglas acompañantes')">Contactar</a>
         </div>
       </article>
 
@@ -544,7 +535,6 @@
         <div class="meta">Solicite envíos por correo a admisiones@clinicasaludtotal.example</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Documentos y formularios')">Solicitar documento</a>
         </div>
       </article>
 
@@ -561,7 +551,6 @@
         <div class="meta">Contacto privacidad: privacidad@clinicasaludtotal.example</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Política de privacidad')">Solicitar información</a>
         </div>
       </article>
 
@@ -578,7 +567,6 @@
         <div class="meta">Disponibilidad: atención telefónica 24/7 para urgencias.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Contactos útiles')">Contactar</a>
         </div>
       </article>
 
@@ -594,7 +582,6 @@
         <div class="meta">Consulta de nutrición: nutricion@clinicasaludtotal.example</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Consejería nutricional')">Agendar consulta</a>
         </div>
       </article>
 
@@ -609,7 +596,6 @@
         <div class="meta">Horario: 7:00 - 18:00 — Reserva previa en rehabilitacion@clinicasaludtotal.example</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Rehabilitación')">Reservar sesión</a>
         </div>
       </article>
 
@@ -625,7 +611,6 @@
         <div class="meta">Psicología: psicologia@clinicasaludtotal.example — Atención confidencial</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Apoyo psicológico')">Solicitar cita</a>
         </div>
       </article>
 
@@ -641,7 +626,6 @@
         <div class="meta">Gestión de calidad: calidad@clinicasaludtotal.example</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Protocolos de calidad')">Solicitar protocolo</a>
         </div>
       </article>
 
@@ -655,7 +639,6 @@
       <h2 style="margin:0 0 10px">¿Necesitas ayuda con un trámite o programa?</h2>
       <p style="margin-bottom:12px">Nuestro equipo de admisiones y atención al paciente está listo para orientarte en los procesos administrativos y clínicos.</p>
       <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <button class="btn primary" onclick="openModal()">Agendar asesoría</button>
         <a class="btn ghost" href="../contactanos/contactanos.php">Contactar admisiones</a>
       </div>
     </section>
@@ -700,7 +683,7 @@
       <div class="faq-list">
         <div class="qa">
           <button aria-expanded="false" onclick="toggleQA(this)">¿Cómo solicito una cita de preanestesia?</button>
-          <div class="answer">Puedes solicitarla mediante el botón "Agendar cita" o llamando a admisiones. Recomendamos programarla con al menos 72 horas de antelación.</div>
+          <div class="answer">Puede solicitarla desde el portal del paciente o llamando a recepción. Recomendamos programarla con al menos 72 horas de antelación.</div>
         </div>
         <div class="qa">
           <button aria-expanded="false" onclick="toggleQA(this)">¿Puedo llevar comida a la habitación?</button>
@@ -906,54 +889,6 @@
 
   </main>
 
-  <!-- MODAL: Agendar -->
-  <div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-hidden="true">
-    <div class="modal" role="document" aria-labelledby="modalTitle">
-      <h3 id="modalTitle">Agendar cita / solicitud</h3>
-      <p id="modalSubtitle" style="color:#445;margin-bottom:8px">Completa los datos y te contactaremos para confirmar la cita.</p>
-
-      <form id="agendarForm" action="../guardar_cita.php" method="POST"><?php echo campoAntispam(); ?>
-        <input type="hidden" name="origen" value="pacientes">
-        <label for="nombre">Nombre completo</label>
-        <input id="nombre" name="nombre" required placeholder="Ej. Juan Pérez">
-
-        <label for="telefono">Teléfono</label>
-        <input id="telefono" name="telefono" required placeholder="Ej. +57 300 000 0000">
-
-        <label for="email">Correo</label>
-        <input id="email" name="correo" type="email" required placeholder="ejemplo@correo.com">
-
-        <label for="servicioSelect">Servicio</label>
-        <select id="servicioSelect" name="servicio" required>
-          <option value="">Seleccione el servicio...</option>
-          <option>Admisiones y procesos de ingreso</option>
-          <option>Horarios y visitas</option>
-          <option>Preparación preoperatoria</option>
-          <option>Facturación y convenios</option>
-          <option>Atención al paciente</option>
-          <option>Transporte y parqueadero</option>
-          <option>Farmacia</option>
-          <option>Rehabilitación</option>
-          <option>Apoyo psicológico</option>
-        </select>
-
-        <label for="fecha">Fecha preferida</label>
-        <input id="fecha" name="fecha" type="date" required>
-
-        <label for="hora">Hora preferida</label>
-        <input id="hora" name="hora" type="time" min="07:00" max="19:00" required>
-
-        <label for="mensaje">Mensaje / motivo</label>
-        <textarea id="mensaje" name="motivo" placeholder="Describa brevemente el motivo de la cita"></textarea>
-
-        <div class="actions">
-          <button type="button" class="btn ghost" onclick="closeModal()">Cancelar</button>
-          <button type="submit" class="btn primary">Enviar solicitud</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
   <!-- Back to top -->
   <button class="to-top" id="toTop" aria-label="Subir al inicio" title="Ir arriba">▲</button>
 
@@ -979,25 +914,6 @@
       if(!isOpen) card.scrollIntoView({behavior:'smooth',block:'center'});
     }
 
-    // Modal
-    const modal = $('#modalBackdrop');
-    const servicioSelect = $('#servicioSelect');
-    let lastFocused = null;
-    function openModal(e, service){
-      if(e && e.preventDefault) e.preventDefault();
-      lastFocused = document.activeElement;
-      modal.style.display = 'flex';
-      modal.setAttribute('aria-hidden','false');
-      if(service){
-        // try match
-        const opts = Array.from(servicioSelect.options);
-        const found = opts.find(o=> o.textContent.toLowerCase().includes(service.toLowerCase().split(' ')[0]));
-        if(found) servicioSelect.value = found.value;
-        else servicioSelect.value = service;
-      }
-      $('#nombre').focus();
-    }
-    function closeModal(){ modal.style.display = 'none'; modal.setAttribute('aria-hidden','true'); if(lastFocused) lastFocused.focus(); }
 
 
     // Filter content (search)
@@ -1059,14 +975,6 @@
     });
     toTop.addEventListener('click',()=> window.scrollTo({top:0,behavior:'smooth'}));
 
-    // Close modal with ESC
-    document.addEventListener('keydown', (e)=>{
-      if(e.key === 'Escape'){ if(modal.style.display === 'flex') closeModal(); }
-    });
-
-    // Open modal from header link
-    const openAgendar = $('#open-agendar');
-    if (openAgendar) openAgendar.addEventListener('click', (ev)=>{ ev.preventDefault(); openModal(); });
 
     // Init
     document.addEventListener('DOMContentLoaded', ()=>{

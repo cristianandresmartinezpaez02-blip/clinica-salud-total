@@ -1,7 +1,8 @@
 <?php
 /**
  * Cabecera pública compartida (barra superior + navegación).
- * Antes de incluirla puede definir: $paginaActiva = 'inicio'|'servicios'|'pacientes'|'investigaciones'|'transparencia'|'donaciones'|'contacto'
+ * Antes de incluirla puede definir: $paginaActiva = 'inicio'|'servicios'|'especialidades'|'pacientes'|'nosotros'|'contacto'
+ * Los botones de la derecha cambian según la sesión: visitante, paciente o personal.
  * Requiere assets/css/chrome.css y assets/js/chrome.js (los imprime includes/head_chrome.php).
  */
 require_once __DIR__ . '/../config/bootstrap.php';
@@ -10,14 +11,15 @@ require_once __DIR__ . '/formularios_publicos.php';
 
 $paginaActiva = $paginaActiva ?? '';
 $menu = [
-    'inicio'          => ['Inicio', 'index.php'],
-    'servicios'       => ['Servicios', 'subpaginas/servicios/servicios.php'],
-    'pacientes'       => ['Pacientes', 'subpaginas/pacientes_visitantes/pacientes_visitantes.php'],
-    'investigaciones' => ['Investigaciones', 'subpaginas/investigaciones/investigaciones.php'],
-    'transparencia'   => ['Transparencia', 'subpaginas/transparencia/transparencia.php'],
-    'donaciones'      => ['Salud compartida', 'subpaginas/salud_compartida/Donaciones.php'],
-    'contacto'        => ['Contáctenos', 'subpaginas/contactanos/contactanos.php'],
+    'inicio'         => ['Inicio', 'index.php'],
+    'servicios'      => ['Servicios', 'subpaginas/servicios/servicios.php'],
+    'especialidades' => ['Especialidades', 'subpaginas/especialidades/especialidades.php'],
+    'pacientes'      => ['Pacientes', 'subpaginas/pacientes_visitantes/pacientes_visitantes.php'],
+    'nosotros'       => ['Nosotros', 'subpaginas/transparencia/transparencia.php'],
+    'contacto'       => ['Contáctenos', 'subpaginas/contactanos/contactanos.php'],
 ];
+// Sesión (la página debe haber llamado iniciarSesion() antes de imprimir HTML)
+$rolSesion = $_SESSION['rol'] ?? null;
 $telefono = config('clinica.telefono');
 $correo   = config('clinica.correo');
 ?>
@@ -56,8 +58,15 @@ $correo   = config('clinica.correo');
         <?php endforeach; ?>
       </ul>
       <div class="st-nav__actions">
-        <a class="st-btn st-btn--ghost" href="<?= e(BASE_URL) ?>/log_in/log_in.php"><?= icono('user') ?>Ingresar</a>
-        <a class="st-btn st-btn--primary" href="<?= e(BASE_URL) ?>/subpaginas/Agenda_cita/Agendar%20cita.php"><?= icono('calendar') ?>Agendar cita</a>
+        <?php if ($rolSesion === 'paciente'): ?>
+          <a class="st-btn st-btn--ghost" href="<?= e(BASE_URL) ?>/log_in/modulos/paciente.php"><?= icono('user') ?>Mi portal</a>
+          <a class="st-btn st-btn--primary" href="<?= e(BASE_URL) ?>/subpaginas/Agenda_cita/Agendar%20cita.php"><?= icono('calendar') ?>Solicitar cita</a>
+        <?php elseif ($rolSesion): ?>
+          <a class="st-btn st-btn--primary" href="<?= e(BASE_URL) ?>/log_in/log_in.php"><?= icono('user') ?>Ir a mi panel</a>
+        <?php else: ?>
+          <a class="st-btn st-btn--ghost" href="<?= e(BASE_URL) ?>/log_in/log_in.php"><?= icono('user') ?>Ingresar</a>
+          <a class="st-btn st-btn--primary" href="<?= e(BASE_URL) ?>/log_in/log_in.php?registro=1">Crear cuenta</a>
+        <?php endif; ?>
       </div>
     </div>
   </div>

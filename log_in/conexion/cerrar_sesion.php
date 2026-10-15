@@ -14,5 +14,5 @@ setcookie(session_name(), '', [
 ]);
 session_destroy();
 
-header('Location: ../log_in.php');
+header('Location: ../log_in.php?salio=1');
 exit;

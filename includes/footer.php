@@ -47,7 +47,8 @@ $whatsapp = preg_replace('/\D/', '', (string) config('clinica.whatsapp'));
       <h3>Enlaces</h3>
       <ul class="st-footer__links">
         <li><a href="<?= $u('subpaginas/servicios/servicios.php') ?>">Servicios</a></li>
-        <li><a href="<?= $u('subpaginas/Agenda_cita/Agendar%20cita.php') ?>">Agendar cita</a></li>
+        <li><a href="<?= $u('subpaginas/especialidades/especialidades.php') ?>">Especialidades y citas</a></li>
+        <li><a href="<?= $u('subpaginas/investigaciones/investigaciones.php') ?>">Investigación y noticias</a></li>
         <li><a href="<?= $u('subpaginas/pacientes_visitantes/pacientes_visitantes.php') ?>">Pacientes y visitantes</a></li>
         <li><a href="<?= $u('subpaginas/transparencia/transparencia.php') ?>">Transparencia</a></li>
         <li><a href="<?= $u('subpaginas/transparencia/politicas.php') ?>">Tratamiento de datos</a></li>

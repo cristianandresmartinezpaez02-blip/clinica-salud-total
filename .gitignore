@@ -10,6 +10,8 @@ log_in/uploads/**
 !log_in/uploads/.htaccess
 !log_in/uploads/identidad/
 !log_in/uploads/identidad/.htaccess
+!log_in/uploads/perfil/
+!log_in/uploads/perfil/.htaccess
 
 # Sistema / editores
 .vscode/

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/config/bootstrap.php';
+iniciarSesion();
 require_once __DIR__ . '/includes/iconos.php';
 require_once __DIR__ . '/log_in/conexion/especialidades_cita.php';
 
@@ -8,6 +9,9 @@ $totalEspecialidades = count(array_unique(obtenerTodasEspecialidades()));
 $u = fn(string $ruta): string => e(BASE_URL . '/' . $ruta);
 $img = fn(string $archivo): string => e(BASE_URL . '/Imagenes/' . rawurlencode($archivo));
 $urlCita = $u('subpaginas/Agenda_cita/Agendar%20cita.php');
+$esPaciente = ($_SESSION['rol'] ?? '') === 'paciente';
+$urlRegistro = $u('log_in/log_in.php?registro=1');
+$urlEspecialidades = $u('subpaginas/especialidades/especialidades.php');
 $mapa = 'https://www.google.com/maps?q=' . rawurlencode(config('clinica.direccion') . ', Colombia') . '&output=embed';
 
 $servicios = [
@@ -53,11 +57,15 @@ $blog = [
         <h1>Alta tecnología con la <span class="text-grad">calidez humana</span> que usted merece</h1>
         <p class="lead">Especialistas comprometidos, instalaciones de vanguardia y atención segura para usted y su familia, en un solo lugar.</p>
         <div class="hero__cta">
-          <a class="st-btn st-btn--primary st-btn--lg" href="<?= $urlCita ?>"><?= icono('calendar') ?>Agendar una cita</a>
-          <a class="st-btn st-btn--ghost st-btn--lg" href="<?= $u('subpaginas/servicios/servicios.php') ?>">Ver servicios<?= icono('arrow') ?></a>
+          <?php if ($esPaciente): ?>
+            <a class="st-btn st-btn--primary st-btn--lg" href="<?= $urlCita ?>"><?= icono('calendar') ?>Solicitar una cita</a>
+          <?php else: ?>
+            <a class="st-btn st-btn--primary st-btn--lg" href="<?= $urlRegistro ?>"><?= icono('user') ?>Crear mi cuenta</a>
+          <?php endif; ?>
+          <a class="st-btn st-btn--ghost st-btn--lg" href="<?= $urlEspecialidades ?>">Ver especialidades<?= icono('arrow') ?></a>
         </div>
         <ul class="hero__trust">
-          <li><?= icono('check') ?>Citas en línea</li>
+          <li><?= icono('check') ?>Citas con turno confirmado</li>
           <li><?= icono('check') ?>Urgencias 24 horas</li>
           <li><?= icono('check') ?>Portal del paciente</li>
         </ul>
@@ -80,13 +88,13 @@ $blog = [
   <!-- ===== ACCESOS RÁPIDOS ===== -->
   <section class="quick" aria-label="Accesos rápidos">
     <div class="st-wrap quick__grid">
-      <a class="quick__item" href="<?= $urlCita ?>">
+      <a class="quick__item" href="<?= $esPaciente ? $urlCita : $urlEspecialidades ?>">
         <span class="quick__ico"><?= icono('calendar') ?></span>
-        <span><strong>Agendar cita</strong><small>Elija especialidad, fecha y hora</small></span>
+        <span><strong><?= $esPaciente ? 'Solicitar cita' : 'Cómo agendar' ?></strong><small><?= $esPaciente ? 'Elija especialidad y turno' : 'Portal, teléfono o recepción' ?></small></span>
       </a>
       <a class="quick__item" href="<?= $u('log_in/log_in.php') ?>">
         <span class="quick__ico"><?= icono('user') ?></span>
-        <span><strong>Portal del paciente</strong><small>Citas, diagnósticos y fórmulas</small></span>
+        <span><strong>Portal del paciente</strong><small>Citas, historia, fórmulas y facturas</small></span>
       </a>
       <a class="quick__item" href="<?= $u('subpaginas/pacientes_visitantes/pacientes_visitantes.php') ?>">
         <span class="quick__ico"><?= icono('users') ?></span>
@@ -129,7 +137,7 @@ $blog = [
       <div class="stat reveal"><strong><?= (int) $totalEspecialidades ?></strong><span>Especialidades médicas</span></div>
       <div class="stat reveal"><strong>24/7</strong><span>Urgencias todos los días</span></div>
       <div class="stat reveal"><strong>13</strong><span>Servicios de alta complejidad</span></div>
-      <div class="stat reveal"><strong>100%</strong><span>Citas gestionables en línea</span></div>
+      <div class="stat reveal"><strong>3</strong><span>Formas de agendar: portal, teléfono o recepción</span></div>
     </div>
   </section>
 
@@ -152,9 +160,27 @@ $blog = [
         </ul>
         <div class="row-cta">
           <a class="st-btn st-btn--primary" href="<?= $u('subpaginas/transparencia/transparencia.php') ?>">Transparencia institucional</a>
-          <a class="st-btn st-btn--ghost" href="<?= $u('subpaginas/investigaciones/investigaciones.php') ?>">Investigación</a>
+          <a class="st-btn st-btn--ghost" href="<?= $urlEspecialidades ?>">Especialidades</a>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- ===== CÓMO FUNCIONA ===== -->
+  <section class="section" id="como-agendar">
+    <div class="st-wrap">
+      <header class="section__head reveal">
+        <span class="eyebrow">Citas con especialistas</span>
+        <h2>Así de fácil es agendar con nosotros</h2>
+        <p>Cada cita tiene un turno reservado con su médico. Las urgencias se atienden por aparte, sin cita, las 24 horas.</p>
+      </header>
+      <ol class="steps">
+        <li class="step reveal"><span class="step__num">1</span><h3>Cree su cuenta</h3><p>Datos personales, correo, foto de perfil y foto de su documento.</p></li>
+        <li class="step reveal"><span class="step__num">2</span><h3>Verificamos su identidad</h3><p>Revisamos su documento, normalmente en menos de 24 horas.</p></li>
+        <li class="step reveal"><span class="step__num">3</span><h3>Solicite su cita</h3><p>Elija especialidad, día y uno de los turnos libres.</p></li>
+        <li class="step reveal"><span class="step__num">4</span><h3>Recepción confirma</h3><p>Le asignamos médico y consultorio y le avisamos por correo.</p></li>
+      </ol>
+      <p class="steps__note reveal"><?= icono('phone') ?>¿Prefiere no usar el portal? Agende por teléfono al <strong><?= e(config('clinica.telefono')) ?></strong> o directamente en recepción.</p>
     </div>
   </section>
 
@@ -215,11 +241,15 @@ $blog = [
   <section class="cta-band">
     <div class="st-wrap cta-band__inner reveal">
       <div>
-        <h2>¿Necesita una cita con un especialista?</h2>
-        <p>Agéndela en línea en menos de dos minutos. Le confirmaremos por correo y WhatsApp.</p>
+        <h2><?= $esPaciente ? '¿Necesita una cita con un especialista?' : 'Su portal de paciente, en minutos' ?></h2>
+        <p><?= $esPaciente ? 'Elija la especialidad y un turno libre. Recepción le confirma el médico y el consultorio.' : 'Cree su cuenta para solicitar citas y consultar su historia, fórmulas y facturas.' ?></p>
       </div>
       <div class="cta-band__actions">
-        <a class="st-btn st-btn--light st-btn--lg" href="<?= $urlCita ?>"><?= icono('calendar') ?>Agendar ahora</a>
+        <?php if ($esPaciente): ?>
+          <a class="st-btn st-btn--light st-btn--lg" href="<?= $urlCita ?>"><?= icono('calendar') ?>Solicitar cita</a>
+        <?php else: ?>
+          <a class="st-btn st-btn--light st-btn--lg" href="<?= $urlRegistro ?>">Crear mi cuenta</a>
+        <?php endif; ?>
         <a class="st-btn st-btn--outline-light st-btn--lg" href="<?= $u('subpaginas/contactanos/contactanos.php') ?>">Contáctenos</a>
       </div>
     </div>

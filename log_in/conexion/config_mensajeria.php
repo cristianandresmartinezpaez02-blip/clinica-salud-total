@@ -14,11 +14,14 @@
  */
 require_once __DIR__ . '/../../config/bootstrap.php';
 
-define('GMAIL_USER', (string) config('mail.gmail_user', ''));
-define('GMAIL_PASSWORD', (string) config('mail.gmail_password', ''));
+// CST_SIN_MENSAJES=1 desactiva correos, SMS y WhatsApp (pruebas automáticas)
+$sinMensajes = (bool) getenv('CST_SIN_MENSAJES');
+
+define('GMAIL_USER', $sinMensajes ? '' : (string) config('mail.gmail_user', ''));
+define('GMAIL_PASSWORD', $sinMensajes ? '' : (string) config('mail.gmail_password', ''));
 define('GMAIL_FROM_NAME', (string) config('mail.from_name', 'Clínica Salud Total'));
 
-define('TWILIO_ACCOUNT_SID', (string) config('twilio.account_sid', ''));
+define('TWILIO_ACCOUNT_SID', $sinMensajes ? '' : (string) config('twilio.account_sid', ''));
 define('TWILIO_AUTH_TOKEN', (string) config('twilio.auth_token', ''));
 define('TWILIO_FROM_NUMBER', (string) config('twilio.from_number', ''));
 define('TWILIO_WHATSAPP_FROM', (string) config('twilio.whatsapp_from', ''));

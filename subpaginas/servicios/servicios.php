@@ -1,3 +1,4 @@
+<?php require_once __DIR__ . '/../../config/bootstrap.php'; iniciarSesion(); ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -381,9 +382,13 @@
         </div>
       </div>
       <div class="right">
-        <p>Usa el buscador para filtrar por nombre, o selecciona una categoría. También puedes agendar directamente desde cualquier tarjeta — se abrirá un formulario rápido (modal).</p>
+        <p>Usa el buscador para filtrar por nombre, o selecciona una categoría. Las consultas con especialistas se solicitan desde el portal del paciente; urgencias y hospitalización se atienden por ingreso directo.</p>
         <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
-          <button class="btn primary small" onclick="location.href='../Agenda_cita/Agendar cita.php'">Agendar cita</button>
+        <?php if (($_SESSION['rol'] ?? '') === 'paciente'): ?>
+          <a class="btn primary small" href="../Agenda_cita/Agendar%20cita.php">Solicitar cita</a>
+        <?php else: ?>
+          <a class="btn primary small" href="../especialidades/especialidades.php">Ver especialidades y cómo agendar</a>
+        <?php endif; ?>
           <a class="btn ghost small" href="../contactanos/contactanos.php">Contactar admisiones</a>
         </div>
       </div>
@@ -420,7 +425,6 @@
         <div class="meta">Responsable: Banco de tejidos — Contacto: banco@clinicasaludtotal.example</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Banco multitejidos y terapias avanzadas')">Agendar cita</a>
         </div>
       </article>
 
@@ -437,7 +441,6 @@
         <div class="meta">Programas principales: Mama, Pulmón, Hematología. Coordinación con investigación clínica disponible.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Centro de Cáncer')">Agendar cita</a>
         </div>
       </article>
 
@@ -454,7 +457,6 @@
         <div class="meta">Disponibilidad: Agenda programada — Duración estimada: 1 a 3 horas según paquete.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Chequeos médicos')">Agendar cita</a>
         </div>
       </article>
 
@@ -471,7 +473,6 @@
         <div class="meta">Quirófanos equipados con tecnología laparoscópica y anestesia regional.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Cirugía ambulatoria')">Agendar cita</a>
         </div>
       </article>
 
@@ -487,7 +488,6 @@
         <div class="meta">Tiempos de espera reducidos mediante triage clínico.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Consulta prioritaria')">Agendar cita</a>
         </div>
       </article>
 
@@ -504,7 +504,6 @@
         <div class="meta">Servicios complementarios: alimentación hospitalaria, fisioterapia, apoyo social.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Hospitalización')">Agendar cita</a>
         </div>
       </article>
 
@@ -521,7 +520,6 @@
         <div class="meta">Protocolos de seguridad intraoperatoria y seguimiento postoperatorio con óptica clínica.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Oftalmología')">Agendar cita</a>
         </div>
       </article>
 
@@ -537,7 +535,6 @@
         <div class="meta">Certificaciones de bioseguridad y gestión de riesgo quirúrgico.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Salas de cirugía')">Agendar cita</a>
         </div>
       </article>
 
@@ -553,7 +550,6 @@
         <div class="meta">Evaluación completa de donante y receptor, control inmunológico y seguimiento ambulatorio prolongado.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Trasplante de Médula Ósea')">Agendar cita</a>
         </div>
       </article>
 
@@ -569,7 +565,6 @@
         <div class="meta">Unidad de trasplantes — protocolos de consentimiento y seguimiento estricto.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Trasplante renal')">Agendar cita</a>
         </div>
       </article>
 
@@ -585,7 +580,6 @@
         <div class="meta">Soporte renal, ventilatorio y nutricional en UCI.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'UCI adultos')">Agendar cita</a>
         </div>
       </article>
 
@@ -601,7 +595,6 @@
         <div class="meta">Unidad neonatal con cuidado humanizado y sala de preparación para procedimiento menores.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'UCI pediátrica')">Agendar cita</a>
         </div>
       </article>
 
@@ -617,7 +610,6 @@
         <div class="meta">Servicio de urgencias con acceso continuo y seguimiento por especialidades.</div>
         <div class="actions">
           <a href="#" class="btn primary small" onclick="toggleDetail(event,this)">Leer más</a>
-          <a href="#" class="btn green small" onclick="openModal(event,'Urgencias')">Agendar cita</a>
         </div>
       </article>
 
@@ -627,10 +619,14 @@
 
     <!-- CTA grande -->
     <section class="cta" role="region" aria-label="Llamado a la accion">
-      <h2>Agende su cita en minutos</h2>
-      <p>Rápido, seguro y con confirmación inmediata. Si necesita orientación, nuestro equipo de admisiones le ayuda a elegir el servicio correcto.</p>
+      <h2>¿Necesita una consulta con un especialista?</h2>
+      <p>Solicítela desde el portal del paciente, por teléfono o en recepción. Recepción le confirmará el médico, el consultorio y la hora.</p>
       <div style="margin-top:12px;display:flex;gap:12px;justify-content:center;align-items:center">
-        <button class="btn primary" onclick="location.href='../Agenda_cita/Agendar cita.php'">Agendar cita ahora</button>
+        <?php if (($_SESSION['rol'] ?? '') === 'paciente'): ?>
+          <a class="btn primary" href="../Agenda_cita/Agendar%20cita.php">Solicitar cita</a>
+        <?php else: ?>
+          <a class="btn primary" href="../especialidades/especialidades.php">Ver especialidades y cómo agendar</a>
+        <?php endif; ?>
         <a class="btn ghost" href="../contactanos/contactanos.php">Hablar con admisiones</a>
       </div>
     </section>
@@ -675,7 +671,7 @@
       <div class="faq-list">
         <div class="qa">
           <button aria-expanded="false" onclick="toggleQA(this)">¿Cómo solicito una cita?</button>
-          <div class="answer">Puedes agendar desde el botón “Agendar cita” en cualquier servicio, por teléfono o en la ventanilla de admisiones.</div>
+          <div class="answer">Desde el portal del paciente (requiere cuenta verificada), por teléfono o en recepción. Las urgencias no requieren cita.</div>
         </div>
         <div class="qa">
           <button aria-expanded="false" onclick="toggleQA(this)">¿Qué documentos debo llevar?</button>
@@ -760,63 +756,6 @@
     </section>
 
   </main>
-<!-- Modal / Agendar (hidden) -->
-<div class="modal-backdrop" id="modalBackdrop" role="dialog" aria-modal="true" aria-hidden="true">
-  <div class="modal" role="document" aria-labelledby="modalTitle">
-    <h3 id="modalTitle">Agendar cita</h3>
-    <p id="modalSubtitle" style="color:#445;margin-bottom:8px">
-      Completa los datos para solicitar tu cita. Te contactaremos para confirmar.
-    </p>
-
-    <!-- Formulario corregido -->
-  <form action="../guardar_cita.php" method="POST"><?php echo campoAntispam(); ?>
-
-
-      <input type="hidden" name="tipo" value="cita">
-
-      <label for="nombre">Nombre completo</label>
-      <input id="nombre" name="nombre" required placeholder="Ej. Juan Pérez">
-
-      <label for="telefono">Teléfono</label>
-      <input id="telefono" name="telefono" required placeholder="Ej. +57 300 000 0000">
-
-      <label for="correo">Correo</label>
-      <input id="correo" name="correo" type="email" required placeholder="ejemplo@correo.com">
-
-      <label for="servicioSelect">Servicio</label>
-      <select id="servicioSelect" name="servicio" required>
-        <option value="">Seleccione el servicio...</option>
-        <option>Banco multitejidos y terapias avanzadas</option>
-        <option>Centro de Cáncer</option>
-        <option>Chequeos médicos</option>
-        <option>Cirugía ambulatoria</option>
-        <option>Consulta prioritaria</option>
-        <option>Hospitalización</option>
-        <option>Oftalmología</option>
-        <option>Salas de cirugía</option>
-        <option>Trasplante de Médula Ósea</option>
-        <option>Trasplante renal</option>
-        <option>UCI adultos</option>
-        <option>UCI pediátrica</option>
-        <option>Urgencias</option>
-      </select>
-
-      <label for="fecha">Fecha preferida</label>
-      <input id="fecha" name="fecha" type="date" required min="<?= date('Y-m-d') ?>">
-
-      <label for="hora">Hora preferida</label>
-      <input id="hora" name="hora" type="time" required>
-
-      <label for="motivo">Mensaje / motivo</label>
-      <textarea id="motivo" name="motivo" placeholder="Describa brevemente el motivo de la cita"></textarea>
-
-      <div class="actions">
-        <button type="button" class="btn ghost" onclick="closeModal()">Cancelar</button>
-        <button type="submit" class="btn primary">Enviar solicitud</button>
-      </div>
-    </form>
-  </div>
-</div>
 
 
   <!-- Back to top -->
@@ -832,29 +771,6 @@
     function $(sel){return document.querySelector(sel)}
     function $$(sel){return Array.from(document.querySelectorAll(sel))}
 
-  // Modal (agendar)
-  const modal = $('#modalBackdrop');
-  const servicioSelect = $('#servicioSelect');
-  let lastFocused = null;
-
-  function openModal(e, servicio){
-    if(e && e.preventDefault) e.preventDefault();
-    lastFocused = document.activeElement;
-    modal.style.display = 'flex';
-    modal.setAttribute('aria-hidden','false');
-    if(servicio){
-      const opts = Array.from(servicioSelect.options);
-      const found = opts.find(o=> o.textContent.toLowerCase().includes(servicio.toLowerCase().split(' ')[0]));
-      if(found) { servicioSelect.value = found.value }
-      else { servicioSelect.value = servicio }
-    }
-    $('#nombre').focus();
-  }
-  function closeModal(){
-    modal.style.display = 'none';
-    modal.setAttribute('aria-hidden','true');
-    if(lastFocused) lastFocused.focus();
-  }
 
 
   // Quick search & filter
@@ -916,16 +832,6 @@
   });
   toTop.addEventListener('click',()=> window.scrollTo({top:0,behavior:'smooth'}));
 
-  // Accessibility: close modal with ESC
-  document.addEventListener('keydown', (e)=>{
-    if(e.key === 'Escape'){
-      if(modal.style.display === 'flex') closeModal();
-    }
-  });
-
-  // Open modal from header link
-  const openAgendar = $('#open-agendar');
-  if (openAgendar) openAgendar.addEventListener('click', (ev)=>{ ev.preventDefault(); openModal(); });
 
   // Initialize filters
   document.addEventListener('DOMContentLoaded', ()=>{

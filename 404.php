@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/config/bootstrap.php';
+iniciarSesion();
 require_once __DIR__ . '/includes/iconos.php';
 http_response_code(404);
 $u = fn(string $ruta): string => e(BASE_URL . '/' . $ruta);

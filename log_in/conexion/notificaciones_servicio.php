@@ -540,12 +540,11 @@ function obtenerCitasPaciente(mysqli $conexion, int $idUsuario, string $correo, 
     $stmt = $conexion->prepare("
         SELECT * FROM cita
         WHERE id_usuario = ?
-           OR (correo IS NOT NULL AND correo != '' AND correo = ?)
-           OR nombre LIKE ?
+           OR (id_usuario IS NULL AND correo IS NOT NULL AND correo != '' AND correo = ?)
         ORDER BY fecha DESC, hora DESC
     ");
-    $like = '%' . trim($nombreCompleto) . '%';
-    $stmt->bind_param('iss', $idUsuario, $correo, $like);
+    // Antes también buscaba por parecido de nombre y mostraba citas de otras personas
+    $stmt->bind_param('is', $idUsuario, $correo);
     $stmt->execute();
     $res = $stmt->get_result();
     while ($row = $res->fetch_assoc()) {
@@ -562,7 +561,9 @@ function agendarCitaPaciente(mysqli $conexion, int $idUsuario, array $datos): in
         $conexion,
         $datos['servicio'] ?? '',
         $datos['fecha'] ?? '',
-        $datos['hora'] ?? ''
+        $datos['hora'] ?? '',
+        null,
+        $idUsuario
     );
     if (!$disponibilidad['ok']) {
         return false;
@@ -593,9 +594,8 @@ function agendarCitaPaciente(mysqli $conexion, int $idUsuario, array $datos): in
 function notificarNuevaCitaStaff(mysqli $conexion, array $datos, int $idCita, ?int $idUsuarioPaciente = null): void
 {
     $msg = "Nueva cita médica #{$idCita}: {$datos['nombre']} — {$datos['servicio']} — {$datos['fecha']} {$datos['hora']}";
+    // Las solicitudes nuevas las gestiona Recepción (el médico recibe aviso cuando se le asigna la cita)
     insertarNotificacionRol($conexion, 'admin', $msg, 'nueva_cita');
-    insertarNotificacionRol($conexion, 'medico', $msg, 'nueva_cita');
-    insertarNotificacionRol($conexion, 'enfermero', $msg, 'nueva_cita');
 
     $msgPac = "📅 Cita registrada (pendiente de aprobación)\n\n"
         . "Servicio: {$datos['servicio']}\n"
@@ -652,4 +652,12 @@ function resumenEnvios(array $resultados): string
         $partes[] = '⚠️ SMS: ' . ($resultados['sms']['error'] ?? 'error');
     }
     return implode('. ', $partes) . '.';
+}
+
+/** Aviso para una persona concreta del personal (p. ej. el médico asignado a una cita). */
+function insertarNotificacionUsuario(mysqli $conexion, string $tipoUsuario, int $idUsuario, string $mensaje, ?string $tipo = null): bool
+{
+    $stmt = $conexion->prepare('INSERT INTO notificaciones (tipo_usuario, id_usuario, tipo, mensaje, leida) VALUES (?, ?, ?, ?, 0)');
+    $stmt->bind_param('siss', $tipoUsuario, $idUsuario, $tipo, $mensaje);
+    return $stmt->execute();
 }

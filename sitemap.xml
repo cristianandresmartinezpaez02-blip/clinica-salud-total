@@ -3,11 +3,10 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://www.clinicasaludtotal.com/index.php</loc><priority>1.0</priority></url>
   <url><loc>https://www.clinicasaludtotal.com/subpaginas/servicios/servicios.php</loc><priority>0.9</priority></url>
-  <url><loc>https://www.clinicasaludtotal.com/subpaginas/Agenda_cita/Agendar%20cita.php</loc><priority>0.9</priority></url>
   <url><loc>https://www.clinicasaludtotal.com/subpaginas/pacientes_visitantes/pacientes_visitantes.php</loc><priority>0.8</priority></url>
   <url><loc>https://www.clinicasaludtotal.com/subpaginas/contactanos/contactanos.php</loc><priority>0.8</priority></url>
   <url><loc>https://www.clinicasaludtotal.com/subpaginas/investigaciones/investigaciones.php</loc><priority>0.6</priority></url>
-  <url><loc>https://www.clinicasaludtotal.com/subpaginas/salud_compartida/Donaciones.php</loc><priority>0.6</priority></url>
+  <url><loc>https://www.clinicasaludtotal.com/subpaginas/especialidades/especialidades.php</loc><priority>0.9</priority></url>
   <url><loc>https://www.clinicasaludtotal.com/subpaginas/transparencia/transparencia.php</loc><priority>0.6</priority></url>
   <url><loc>https://www.clinicasaludtotal.com/subpaginas/transparencia/informes.php</loc><priority>0.4</priority></url>
   <url><loc>https://www.clinicasaludtotal.com/subpaginas/transparencia/actas.php</loc><priority>0.4</priority></url>

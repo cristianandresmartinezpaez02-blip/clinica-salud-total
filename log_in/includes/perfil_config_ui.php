@@ -21,7 +21,7 @@ function renderBloquePerfil(array $u, string $rolLabel): string
             <div class="row g-3">
                 <div class="col-md-6"><label class="form-label fw-semibold">Nombre</label><input type="text" class="form-control" name="nombre" value="' . $esc($u['nombre'] ?? '') . '" required></div>
                 <div class="col-md-6"><label class="form-label fw-semibold">Apellido</label><input type="text" class="form-control" name="apellido" value="' . $esc($u['apellido'] ?? '') . '"></div>
-                <div class="col-md-6"><label class="form-label fw-semibold">Correo</label><input type="email" class="form-control" name="correo" value="' . $esc($u['correo'] ?? '') . '"></div>
+                <div class="col-md-6"><label class="form-label fw-semibold">Correo</label><input type="email" class="form-control" name="correo" required value="' . $esc($u['correo'] ?? '') . '"><small class="text-muted">Con este correo ingresa al sistema.</small></div>
                 <div class="col-md-6"><label class="form-label fw-semibold">Teléfono</label><input type="text" class="form-control" name="telefono" value="' . $esc($u['telefono'] ?? '') . '"></div>
             </div>
             <button type="submit" class="btn btn-primary mt-3"><i class="bi bi-check-lg"></i> Guardar perfil</button>
@@ -85,7 +85,7 @@ function procesarAccionesPerfilConfig(mysqli $conexion, int $idUsuario): array
             $_SESSION['nombre'] = trim($_POST['nombre'] ?? $_SESSION['nombre']);
             $mensaje = '✅ Perfil actualizado correctamente.';
         } else {
-            $mensaje = '❌ No se pudo actualizar el perfil.';
+            $mensaje = '❌ No se pudo actualizar el perfil. Revise que el correo sea válido y que no lo use otra cuenta.';
         }
         $pageRedirect = 'perfilPage';
     } elseif ($accion === 'cambiar_clave') {

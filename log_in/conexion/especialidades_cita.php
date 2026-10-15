@@ -54,7 +54,7 @@ function obtenerCategoriasEspecialidades(): array
         ],
         'mental' => [
             'titulo' => 'Salud mental',
-            'icon'   => 'bi-brain',
+            'icon'   => 'bi-chat-heart',
             'items'  => [
                 'Psiquiatría', 'Psicología Clínica', 'Psicoterapia',
             ],
@@ -93,7 +93,7 @@ function iconoEspecialidad(string $nombre): string
         'Medicina General' => 'bi-heart-pulse', 'Pediatría' => 'bi-emoji-smile', 'Cardiología' => 'bi-activity',
         'Laboratorio Clínico' => 'bi-droplet', 'Imagenología' => 'bi-camera', 'Ginecología' => 'bi-gender-female',
         'Psicología' => 'bi-chat-heart', 'Odontología' => 'bi-bandaid', 'Fisioterapia' => 'bi-person-walking',
-        'Oftalmología' => 'bi-eye', 'Psiquiatría' => 'bi-brain',
+        'Oftalmología' => 'bi-eye', 'Psiquiatría' => 'bi-chat-heart',
     ];
     return $map[$nombre] ?? 'bi-hospital';
 }

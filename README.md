@@ -1,28 +1,34 @@
 # Clínica Salud Total
 
-Sitio web y sistema de gestión clínica desarrollado en **PHP + MySQL**: página pública de la clínica, agendamiento de citas en línea y paneles por rol (administrador, médico, enfermería, farmacia y paciente).
+Sitio web y sistema de gestión para una **clínica privada**, desarrollado en **PHP + MySQL**: página pública, portal del paciente con citas en línea y paneles para recepción, médicos, enfermería, farmacia y administración.
 
 > Proyecto académico. Los datos de contacto y el contenido institucional son de ejemplo.
 
-## Funcionalidades
+## Cómo funciona la clínica en el sistema
 
-**Sitio público**
-- Inicio con accesos rápidos, servicios, información para pacientes, blog y mapa.
-- Catálogo de servicios con buscador y solicitud de cita.
-- Agendamiento de citas con especialidades y disponibilidad en tiempo real.
-- Pacientes y visitantes, Investigaciones, Donaciones y Contáctenos.
-- Transparencia con informes de gestión, actas y política de tratamiento de datos (Ley 1581 de 2012).
-- Diseño adaptable a móvil con cabecera, pie y paleta de colores comunes a todo el sitio.
-- Página 404 propia, `robots.txt` y `sitemap.xml`.
+En una clínica privada cada cita tiene un **turno reservado con un médico**. Las **urgencias no se agendan**: se atienden 24 horas por llegada directa y no desplazan la agenda.
 
-**Sistema interno (`log_in/`)**
-- Inicio de sesión con verificación de identidad (tipo y número de documento).
-- Registro de pacientes con foto del documento y selfie, aprobados por un administrador.
-- Paneles por rol: administración de usuarios, citas, mensajes y donaciones; diagnósticos y fórmulas médicas; enfermería; farmacia y facturación; portal del paciente.
-- Diseño unificado para los cinco paneles, con menú lateral adaptable a celular y tema claro u oscuro.
-- Resumen del administrador con tareas pendientes (identidades por verificar, citas por aprobar, mensajes sin responder).
-- Secciones *Mi perfil* (datos y contraseña) y *Configuración* (tema y animaciones) en los paneles del personal.
-- Notificaciones en el panel, por correo (Gmail) y opcionalmente SMS/WhatsApp (Twilio).
+```
+Paciente solicita (en línea) ─▶ PENDIENTE ─▶ Recepción asigna médico y consultorio ─▶ CONFIRMADA
+Recepción agenda (presencial / teléfono) ────────────────────────────────────────────▶ CONFIRMADA
+CONFIRMADA ─▶ el paciente llega (recepción) ─▶ EN SALA ─▶ el médico registra la consulta ─▶ ATENDIDA
+CONFIRMADA ─▶ NO ASISTIÓ  ·  PENDIENTE / CONFIRMADA ─▶ CANCELADA
+```
+
+| Rol | Qué hace |
+|---|---|
+| **Paciente** | Crea su cuenta (datos, correo, foto de perfil y foto del documento). Cuando el administrador la aprueba, solicita citas eligiendo especialidad, día y turno libre; ve sus citas, historia, fórmulas y facturas; puede cancelar sus citas y cambiar su contraseña. |
+| **Recepción** | Dueña de la agenda: confirma las solicitudes en línea asignando médico y consultorio, agenda citas presenciales y telefónicas (busca al paciente o lo registra en el momento), marca llegadas, inasistencias y cancelaciones. |
+| **Médico** | Ve solo su agenda y la cola de pacientes en sala; registra la consulta (diagnóstico, tratamiento y fórmula), que pasa a farmacia. |
+| **Enfermería** | Consulta la agenda del día y los pacientes en sala; responde mensajes de contacto. |
+| **Farmacia** | Despacha las fórmulas de las consultas y factura. |
+| **Administrador** | Crea las cuentas del personal, aprueba o rechaza la identidad de los pacientes registrados en línea, supervisa la agenda y responde mensajes. |
+
+### Reglas de la agenda
+- Turnos de 30 minutos. Lunes a viernes 7:00 a.m. – 6:00 p.m., sábados 8:00 a.m. – 1:00 p.m., domingos sin consulta.
+- Cada especialidad atiende un paciente por turno y tiene un cupo diario.
+- Un paciente no puede tener dos citas a la misma hora ni más de 3 solicitudes pendientes.
+- Se agenda con máximo 60 días de anticipación.
 
 ## Instalación (XAMPP)
 
@@ -34,17 +40,21 @@ Sitio web y sistema de gestión clínica desarrollado en **PHP + MySQL**: págin
 
 Si instala el proyecto en otra carpeta, cambie `app.base_url` en `config/config.local.php` y la ruta de `ErrorDocument` en `.htaccess`.
 
-## Usuarios de demostración
+**¿Ya tenía una base de datos anterior?** El sistema agrega solo el rol Recepción y las columnas nuevas de la agenda. Como ahora se ingresa con **correo**, asigne un correo a cada usuario antiguo desde *Administrador → Usuarios → Editar*.
 
-Para iniciar sesión se pide usuario, contraseña, módulo y documento (tipo **Cédula de ciudadanía**).
+## Cuentas de demostración
 
-| Módulo | Usuario | Contraseña | Documento |
-|---|---|---|---|
-| Administrador | `admin` | `Admin2026*` | 1000000001 |
-| Médico | `medico` | `Medico2026*` | 1000000002 |
-| Enfermería | `enfermero` | `Enfermero2026*` | 1000000003 |
-| Farmacia | `farmacia` | `Farmacia2026*` | 1000000004 |
-| Paciente | `paciente` | `Paciente2026*` | 1000000005 |
+Se ingresa con **correo y contraseña**.
+
+| Rol | Correo | Contraseña |
+|---|---|---|
+| Administrador | `admin@demo.local` | `Admin2026*` |
+| Recepción | `recepcion@demo.local` | `Recepcion2026*` |
+| Médico (Medicina General) | `medico@demo.local` | `Medico2026*` |
+| Médico (Pediatría) | `pediatra@demo.local` | `Pediatra2026*` |
+| Enfermería | `enfermero@demo.local` | `Enfermero2026*` |
+| Farmacia | `farmacia@demo.local` | `Farmacia2026*` |
+| Paciente | `paciente@demo.local` | `Paciente2026*` |
 
 **Cambie estas contraseñas** si publica el sistema en un servidor real.
 
@@ -52,31 +62,32 @@ Para iniciar sesión se pide usuario, contraseña, módulo y documento (tipo **C
 
 ```
 config/            Configuración (config.local.php no se versiona) y arranque común
-includes/          Cabecera, pie e íconos compartidos de las páginas públicas
-assets/            CSS, JS e imágenes del diseño
+includes/          Cabecera, pie, íconos y protección de formularios públicos
+assets/            CSS, JS e imágenes del diseño (sitio, login, paneles, documentos)
 index.php          Página de inicio
-subpaginas/        Páginas públicas (servicios, citas, transparencia, etc.)
-log_in/            Inicio de sesión, paneles por rol y servicios (conexion/)
+subpaginas/        Páginas públicas: servicios, especialidades, citas, pacientes, nosotros, contacto
+log_in/            Ingreso, paneles por rol (modulos/) y servicios (conexion/)
+  conexion/citas_servicio.php        Ciclo de vida de las citas
+  conexion/disponibilidad_cita.php   Reglas de la agenda y turnos libres
+  modulos/recepcion.php              Panel de recepción
 base_datos/        Esquema SQL con datos de demostración
 Imagenes/          Imágenes del sitio
 ```
 
 ## Seguridad
 
-- Contraseñas con `password_hash` (las antiguas en texto plano se convierten automáticamente al iniciar sesión).
+- Ingreso con correo y contraseña; contraseñas con `password_hash` (las antiguas en texto plano se convierten al iniciar sesión).
+- Límite de 5 intentos fallidos de inicio de sesión.
 - Consultas preparadas (`mysqli` + `bind_param`).
 - Sesión con cookies `HttpOnly` y `SameSite=Strict`, regeneración de ID al iniciar sesión.
-- Límite de 5 intentos fallidos de inicio de sesión.
-- Protección CSRF en el inicio de sesión y en todos los formularios y acciones de los paneles (token por sesión inyectado automáticamente).
-- Formularios públicos protegidos contra spam: campo trampa, tiempo mínimo de llenado firmado y límite de envíos.
-- Cada visitante solo ve la confirmación de la cita que él mismo creó.
-- El registro público solo crea pacientes; el personal lo crea un administrador.
-- Subidas de imágenes validadas por contenido, con nombre aleatorio y sin ejecución de scripts en `uploads/`.
-- Las fotos de documentos de identidad solo las puede ver un administrador.
-- Credenciales fuera del código fuente (`config/config.local.php`).
-- Zona horaria de Colombia (`America/Bogota`) en PHP y MySQL.
-- Cabeceras de seguridad y bloqueo de carpetas internas vía `.htaccess`.
+- Protección CSRF en el ingreso y en todos los formularios y acciones de los paneles.
+- Formularios públicos protegidos contra spam (campo trampa, tiempo mínimo firmado y límite de envíos).
+- El registro público solo crea pacientes y exige aprobación del administrador; el personal lo crea un administrador.
+- Correos únicos en todo el sistema; el documento verificado no se puede cambiar desde el portal.
+- Fotos de perfil y de documentos fuera del acceso público, visibles solo para administración y recepción.
+- Cada médico ve solo sus citas y sus avisos; cada paciente solo sus citas.
+- Credenciales fuera del código fuente (`config/config.local.php`). Zona horaria de Colombia en PHP y MySQL.
 
 ## Tecnologías
 
-PHP 8, MySQL/MariaDB, HTML5, CSS3, JavaScript, Bootstrap 5 e íconos de Bootstrap Icons y Font Awesome Free.
+PHP 8, MySQL/MariaDB, HTML5, CSS3, JavaScript, Bootstrap 5, Bootstrap Icons y Font Awesome Free.

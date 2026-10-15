@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../config/bootstrap.php';
+iniciarSesion();
 require_once __DIR__ . '/../../includes/iconos.php';
 
 $informes = [
@@ -21,7 +22,7 @@ $informes = [
   <link rel="stylesheet" href="<?= e(BASE_URL) ?>/assets/css/documento.css?v=1">
 </head>
 <body class="doc">
-<?php $paginaActiva = 'transparencia'; require __DIR__ . '/../../includes/header.php'; ?>
+<?php $paginaActiva = 'nosotros'; require __DIR__ . '/../../includes/header.php'; ?>
 
 <main id="contenido">
   <section class="doc-hero">

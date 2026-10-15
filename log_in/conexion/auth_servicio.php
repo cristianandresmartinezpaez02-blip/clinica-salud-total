@@ -21,6 +21,8 @@ function asegurarEsquemaAuth(mysqli $conexion): void
         }
     }
 
+    asegurarRolRecepcion($conexion);
+
     // Usuarios antiguos sin flujo de verificación: tratarlos como ya aprobados
     $conexion->query("UPDATE usuario SET verificacion_identidad = 'aprobada'
         WHERE verificacion_identidad = 'pendiente'
@@ -360,7 +362,7 @@ function rechazarVerificacionIdentidad(mysqli $conexion, int $idUsuario, string 
 function obtenerUsuariosPendientesVerificacion(mysqli $conexion): array
 {
     $res = $conexion->query("SELECT id_usuario, nombre, apellido, usuario, rol, telefono, tipo_documento, documento,
-            foto_documento, foto_selfie_documento, fecha_registro
+            foto, foto_documento, foto_selfie_documento, fecha_registro
         FROM usuario
         WHERE verificacion_identidad = 'pendiente'
         ORDER BY fecha_registro ASC");
@@ -375,6 +377,125 @@ function urlFotoIdentidad(?string $rutaRelativa): ?string
     if (empty($rutaRelativa)) {
         return null;
     }
-    // Las fotos de identidad no son públicas: se sirven a través de ver_identidad.php (solo admin)
+    // Las fotos de identidad y de perfil no son públicas: se sirven a través de ver_identidad.php (solo personal)
     return 'ver_identidad.php?archivo=' . rawurlencode(basename($rutaRelativa));
+}
+
+/* ===================== Cuentas, roles e ingreso por correo ===================== */
+
+/** Roles del sistema y su nombre visible. */
+function rolesSistema(): array
+{
+    return [
+        'admin'      => 'Administrador',
+        'recepcion'  => 'Recepción',
+        'medico'     => 'Médico',
+        'enfermero'  => 'Enfermería',
+        'farmaceuta' => 'Farmacia',
+        'paciente'   => 'Paciente',
+    ];
+}
+
+/** Panel al que entra cada rol (relativo a log_in/). */
+function rutaPanelPorRol(string $rol): string
+{
+    return match ($rol) {
+        'admin'                  => 'modulos/admin.php',
+        'recepcion'              => 'modulos/recepcion.php',
+        'medico'                 => 'modulos/medico.php',
+        'enfermero'              => 'modulos/enfermero.php',
+        'farmaceuta', 'farmacia' => 'modulos/farmacia.php',
+        default                  => 'modulos/paciente.php',
+    };
+}
+
+/** Agrega el rol "recepcion" a la columna usuario.rol si la base de datos es anterior. */
+function asegurarRolRecepcion(mysqli $conexion): void
+{
+    $res = $conexion->query("SHOW COLUMNS FROM usuario LIKE 'rol'");
+    $tipo = $res ? ($res->fetch_assoc()['Type'] ?? '') : '';
+    if ($tipo !== '' && stripos($tipo, "'recepcion'") === false) {
+        $conexion->query("ALTER TABLE usuario MODIFY rol ENUM('admin','recepcion','medico','enfermero','farmaceuta','paciente') NOT NULL");
+    }
+}
+
+function normalizarCorreo(?string $correo): string
+{
+    return strtolower(trim((string) $correo));
+}
+
+function correoYaRegistrado(mysqli $conexion, string $correo, ?int $excluirId = null): bool
+{
+    $correo = normalizarCorreo($correo);
+    $sql = 'SELECT id_usuario FROM usuario WHERE LOWER(correo) = ?' . ($excluirId ? ' AND id_usuario <> ' . (int) $excluirId : '') . ' LIMIT 1';
+    $stmt = $conexion->prepare($sql);
+    $stmt->bind_param('s', $correo);
+    $stmt->execute();
+    return (bool) $stmt->get_result()->fetch_assoc();
+}
+
+/** Nombre de usuario interno único (la columna lo exige; el ingreso es por correo). */
+function generarNombreUsuario(mysqli $conexion, string $correo): string
+{
+    $base = substr(preg_replace('/[^a-z0-9._-]/', '', strtolower(strtok($correo, '@') ?: 'usuario')), 0, 40) ?: 'usuario';
+    $candidato = $base;
+    for ($i = 2; $i < 1000; $i++) {
+        $stmt = $conexion->prepare('SELECT 1 FROM usuario WHERE usuario = ? LIMIT 1');
+        $stmt->bind_param('s', $candidato);
+        $stmt->execute();
+        if (!$stmt->get_result()->fetch_row()) {
+            return $candidato;
+        }
+        $candidato = $base . $i;
+    }
+    return $base . bin2hex(random_bytes(3));
+}
+
+function claveSegura(string $clave): bool
+{
+    return strlen($clave) >= 8 && preg_match('/[A-Za-z]/', $clave) && preg_match('/\d/', $clave);
+}
+
+/** Busca la cuenta por correo y valida la contraseña. Devuelve la fila del usuario o null. */
+function autenticarPorCorreo(mysqli $conexion, string $correo, string $clave): ?array
+{
+    $correo = normalizarCorreo($correo);
+    $stmt = $conexion->prepare('SELECT id_usuario, nombre, apellido, rol, clave, estado, verificacion_identidad FROM usuario WHERE LOWER(correo) = ?');
+    $stmt->bind_param('s', $correo);
+    $stmt->execute();
+    foreach ($stmt->get_result()->fetch_all(MYSQLI_ASSOC) as $usuario) {
+        if (verificarClaveYMigrar($conexion, (int) $usuario['id_usuario'], $clave, (string) $usuario['clave'])) {
+            return $usuario;
+        }
+    }
+    return null;
+}
+
+/** Avisa al paciente (portal + correo) el resultado de la verificación de su cuenta. */
+function notificarResultadoVerificacion(mysqli $conexion, int $idUsuario, bool $aprobada, string $motivo = ''): void
+{
+    require_once __DIR__ . '/notificaciones_servicio.php';
+    $stmt = $conexion->prepare('SELECT nombre, correo FROM usuario WHERE id_usuario = ? LIMIT 1');
+    $stmt->bind_param('i', $idUsuario);
+    $stmt->execute();
+    $u = $stmt->get_result()->fetch_assoc();
+    if (!$u) {
+        return;
+    }
+    $clinica = (string) config('clinica.nombre', 'Clínica Salud Total');
+    if ($aprobada) {
+        $texto = "¡Bienvenido(a), {$u['nombre']}! Su cuenta fue verificada. Ya puede solicitar citas con especialistas desde su portal.";
+        $html = '<p>Hola ' . htmlspecialchars($u['nombre']) . ',</p><p>Su cuenta en el portal de pacientes de ' . htmlspecialchars($clinica)
+            . ' fue <strong>verificada</strong>. Ya puede ingresar con su correo y contraseña para solicitar citas y consultar su historia.</p>';
+        $asunto = 'Su cuenta fue verificada — ' . $clinica;
+    } else {
+        $texto = 'No pudimos verificar su identidad' . ($motivo !== '' ? ": {$motivo}" : '.') . ' Acérquese a recepción con su documento original.';
+        $html = '<p>Hola ' . htmlspecialchars($u['nombre']) . ',</p><p>No pudimos verificar su identidad' . ($motivo !== '' ? ': ' . htmlspecialchars($motivo) : '.')
+            . '</p><p>Acérquese a recepción con su documento original y le activaremos la cuenta.</p>';
+        $asunto = 'Verificación de su cuenta — ' . $clinica;
+    }
+    insertarNotificacionPaciente($conexion, $idUsuario, $texto, 'verificacion');
+    if (!empty($u['correo'])) {
+        enviarCorreo($u['correo'], $asunto, $html);
+    }
 }

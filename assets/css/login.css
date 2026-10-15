@@ -162,3 +162,22 @@ a { color: var(--a-primary); }
   .auth__upload small { max-width: 200px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------- Registro en pasos y aviso de urgencias ---------- */
+.auth__card { transition: max-width .2s ease; }
+.auth__card--wide { max-width: 620px; }
+.auth__step { display: flex; align-items: center; gap: 10px; font: 700 14px var(--a-font); color: var(--a-ink); margin: 6px 0 14px; padding-top: 6px; }
+.auth__step span { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: #eaf2fb; color: var(--a-primary); font-size: 12.5px; }
+.auth__step:not(:first-of-type) { margin-top: 10px; border-top: 1px solid var(--a-line); padding-top: 20px; }
+.auth__opt { font-weight: 400; color: var(--a-muted); }
+.auth__uploads--2 { grid-template-columns: 1fr 1fr; }
+.auth__uploads--2 .auth__upload small { max-width: 170px; }
+.auth__urgent {
+  display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 14px;
+  background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .18); font-size: 14px; color: #dbe8f6; line-height: 1.45;
+}
+.auth__urgent i { font-size: 1.3rem; color: #ffb3b3; margin-top: 1px; }
+.auth__urgent strong { color: #fff; }
+.auth__urgent a { color: #fff; font-weight: 700; white-space: nowrap; }
+@media (max-width: 960px) { .auth__urgent { display: none; } }
+@media (max-width: 520px) { .auth__uploads--2 { grid-template-columns: 1fr; } .auth__uploads--2 .auth__upload small { max-width: 220px; } }
