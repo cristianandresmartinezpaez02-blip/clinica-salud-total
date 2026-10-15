@@ -14,6 +14,7 @@
 require_once __DIR__ . '/notificaciones_servicio.php';
 require_once __DIR__ . '/disponibilidad_cita.php';
 require_once __DIR__ . '/clinica_servicio.php';
+require_once __DIR__ . '/agenda_medica_servicio.php';
 
 function estadosCita(): array
 {
@@ -55,7 +56,13 @@ function origenesCita(): array
 
 function asegurarEsquemaCitas(mysqli $conexion): void
 {
+    static $hecho = false;
+    if ($hecho) {
+        return;
+    }
+    $hecho = true;
     asegurarEsquemaNotificaciones($conexion);
+    asegurarEsquemaAgenda($conexion);
     $columnas = [
         'id_medico_usuario' => 'INT DEFAULT NULL',
         'origen'            => "VARCHAR(20) DEFAULT 'web'",
@@ -141,10 +148,14 @@ function confirmarCita(mysqli $conexion, int $idCita, int $idMedicoUsuario, stri
     if (!$medico) {
         return ['ok' => false, 'msg' => 'Seleccione un médico válido.'];
     }
+    $check = verificarDisponibilidadCita($conexion, $cita['servicio'], $cita['fecha'], date('H:i', strtotime($cita['hora'])), $idCita, (int) $cita['id_usuario'] ?: null, $idMedicoUsuario);
+    if (!$check['ok']) {
+        return ['ok' => false, 'msg' => $check['mensaje']];
+    }
     $consultorio = trim($consultorio) !== '' ? trim($consultorio) : 'Por asignar';
 
-    $stmt = $conexion->prepare('UPDATE cita SET id_medico_usuario = ? WHERE id_cita = ?');
-    $stmt->bind_param('ii', $idMedicoUsuario, $idCita);
+    $stmt = $conexion->prepare('UPDATE cita SET id_medico_usuario = ?, nombre_medico = ? WHERE id_cita = ?');
+    $stmt->bind_param('isi', $idMedicoUsuario, $medico['nombre'], $idCita);
     $stmt->execute();
     insertarNotificacionUsuario($conexion, 'medico', $idMedicoUsuario, "Nueva cita asignada #{$idCita}: {$cita['nombre']} — {$cita['servicio']} — " . date('d/m/Y', strtotime($cita['fecha'])) . ' ' . date('g:i a', strtotime($cita['hora'])) . " ({$consultorio})", 'nueva_cita');
 
@@ -175,7 +186,7 @@ function crearCita(mysqli $conexion, array $datos): array
 {
     asegurarEsquemaCitas($conexion);
     $idUsuario = (int) ($datos['id_usuario'] ?? 0) ?: null;
-    $check = verificarDisponibilidadCita($conexion, $datos['servicio'] ?? '', $datos['fecha'] ?? '', $datos['hora'] ?? '', null, $idUsuario);
+    $check = verificarDisponibilidadCita($conexion, $datos['servicio'] ?? '', $datos['fecha'] ?? '', $datos['hora'] ?? '', null, $idUsuario, (int) ($datos['id_medico_usuario'] ?? 0) ?: null);
     if (!$check['ok']) {
         return ['ok' => false, 'msg' => $check['mensaje']];
     }
@@ -289,11 +300,11 @@ function reprogramarCita(mysqli $conexion, int $idCita, string $fecha, string $h
     if (!$cita || !in_array($cita['estado'], ['pendiente', 'confirmada'], true)) {
         return ['ok' => false, 'msg' => 'Solo se reprograman citas pendientes o confirmadas.'];
     }
-    $check = verificarDisponibilidadCita($conexion, $cita['servicio'], $fecha, $hora, $idCita, (int) $cita['id_usuario'] ?: null);
+    $idMedico = $idMedicoUsuario ?: ((int) $cita['id_medico_usuario'] ?: null);
+    $check = verificarDisponibilidadCita($conexion, $cita['servicio'], $fecha, $hora, $idCita, (int) $cita['id_usuario'] ?: null, $idMedico);
     if (!$check['ok']) {
         return ['ok' => false, 'msg' => $check['mensaje']];
     }
-    $idMedico = $idMedicoUsuario ?: ((int) $cita['id_medico_usuario'] ?: null);
     $nombreMedico = $cita['nombre_medico'];
     if ($idMedicoUsuario) {
         $nombreMedico = null;
@@ -308,7 +319,9 @@ function reprogramarCita(mysqli $conexion, int $idCita, string $fecha, string $h
     }
     $consultorio = $consultorio !== null && trim($consultorio) !== '' ? trim($consultorio) : $cita['consultorio'];
     $h = date('H:i', strtotime($hora));
-    $stmt = $conexion->prepare('UPDATE cita SET fecha = ?, hora = ?, id_medico_usuario = ?, nombre_medico = ?, consultorio = ?, recordatorio_enviado = 0 WHERE id_cita = ?');
+    $stmt = $conexion->prepare('UPDATE cita SET fecha = ?, hora = ?, id_medico_usuario = ?, nombre_medico = ?, consultorio = ?, recordatorio_enviado = 0,
+            requiere_reprogramacion = 0, motivo_reprogramacion = NULL,
+            propuesta_estado = CASE WHEN propuesta_estado = "pendiente" THEN "reemplazada" ELSE propuesta_estado END WHERE id_cita = ?');
     $stmt->bind_param('ssissi', $fecha, $h, $idMedico, $nombreMedico, $consultorio, $idCita);
     if (!$stmt->execute()) {
         return ['ok' => false, 'msg' => 'No se pudo reprogramar la cita.'];

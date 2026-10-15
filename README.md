@@ -17,14 +17,33 @@ CONFIRMADA ─▶ NO ASISTIÓ  ·  PENDIENTE / CONFIRMADA ─▶ CANCELADA
 
 | Rol | Qué hace |
 |---|---|
-| **Paciente** | Crea su cuenta (datos, correo, foto de perfil y foto del documento). Cuando el administrador la aprueba, solicita citas eligiendo especialidad, día y turno libre; ve sus citas, historia, fórmulas y facturas; puede cancelar sus citas y cambiar su contraseña. |
-| **Recepción** | Dueña de la agenda: confirma las solicitudes en línea asignando médico y consultorio, agenda citas presenciales y telefónicas (busca al paciente o lo registra en el momento), **reprograma**, marca llegadas, inasistencias y cancelaciones. |
+| **Paciente** | Crea su cuenta (datos, correo, foto de perfil y foto del documento). Cuando el administrador la aprueba, ve **qué días hay cupo** y solicita citas eligiendo especialidad, día y turno libre; **acepta o rechaza los cambios de horario** que le propone Recepción o elige él mismo otro turno libre; ve sus citas, historia, fórmulas, órdenes e incapacidades; puede cancelar sus citas y cambiar su contraseña. |
+| **Recepción** | Dueña de la agenda: confirma las solicitudes en línea asignando médico y consultorio, agenda citas presenciales y telefónicas (busca al paciente o lo registra en el momento), marca llegadas, inasistencias y cancelaciones. Cambia el día y la hora de las citas **proponiendo el nuevo horario al paciente** (o aplicándolo de inmediato si el paciente ya aceptó por teléfono) y atiende la bandeja **Por reprogramar**. |
 | **Enfermería** | Hace el **triaje** de los pacientes en sala: signos vitales (presión, frecuencias, temperatura, saturación, peso, talla, IMC, glucometría, dolor) y antecedentes (alergias, enfermedades crónicas, medicamentos, cirugías, grupo sanguíneo). Valida rangos y alerta valores anormales. |
-| **Médico** | Ve solo su agenda y la cola de pacientes en sala. Al atender recibe el triaje, las **alergias resaltadas**, los antecedentes y las consultas anteriores; consulta la **historia clínica** de sus pacientes y registra la consulta (diagnóstico, tratamiento y fórmula), que pasa a farmacia. |
+| **Médico** | Ve solo su agenda y la cola de pacientes en sala. Al atender recibe el triaje, las **alergias resaltadas**, los antecedentes y las consultas anteriores, y diligencia la **historia clínica estructurada** (ver abajo), que firma electrónicamente. Solicita **permisos** con mínimo 7 días de anticipación. |
 | **Farmacia** | Despacha las fórmulas de las consultas y factura. |
-| **Administrador** | Crea las cuentas del personal, aprueba o rechaza la identidad de los pacientes, supervisa la agenda, consulta **reportes** (citas por día, especialidad y médico, inasistencia, pacientes nuevos) y la **auditoría** de accesos. |
+| **Administrador (coordinación)** | Crea las cuentas del personal, aprueba o rechaza la identidad de los pacientes, **aprueba o rechaza los permisos médicos** y registra novedades sin preaviso (incapacidades, calamidades), supervisa la agenda, consulta **reportes** y la **auditoría** de accesos. |
 
-### Historia clínica y auditoría
+### Historia clínica (registro de consulta externa)
+Organizada como en una clínica (formato SOAP):
+- **Identificación** tomada de la ficha del paciente (no se vuelve a digitar), tipo de consulta, causa externa y acompañante.
+- **S – Anamnesis:** motivo de consulta, enfermedad actual, revisión por sistemas y antecedentes (actualizan la ficha).
+- **O – Examen físico:** signos vitales del triaje (o los toma el médico si no hubo triaje) y examen por sistemas.
+- **A – Análisis** y diagnósticos **CIE-10** (principal con tipo de diagnóstico y hasta 3 relacionados; lista de los más frecuentes o cualquier código válido).
+- **P – Plan:** conducta, **fórmula médica estructurada** (medicamento, presentación, dosis, vía, frecuencia, días, cantidad), **órdenes** de laboratorio, imágenes, procedimientos e interconsultas, **incapacidad**, recomendaciones y signos de alarma, y control.
+- **Firma electrónica** con nombre, especialidad y registro médico, y código de verificación. La consulta firmada no se modifica.
+- Documentos imprimibles: historia clínica, fórmula médica, órdenes e incapacidad. Farmacia solo ve la fórmula.
+
+### Permisos médicos y cambios de cita
+```
+Médico solicita permiso (≥ 7 días antes; día completo o media jornada) ─▶ PENDIENTE ─▶ coordinación APRUEBA o RECHAZA
+Aprobado ─▶ el médico sale de la agenda en ese horario ─▶ sus citas pasan a «Por reprogramar»
+Recepción propone nuevo día/hora (el turno queda apartado) ─▶ el paciente ACEPTA (la cita se mueve) o RECHAZA
+```
+- Las incapacidades y calamidades las registra la coordinación sin preaviso y quedan aprobadas.
+- El paciente también puede elegir por su cuenta otro turno libre (con 24 horas de anticipación, o en cualquier momento si su cita quedó por reprogramar).
+
+### Auditoría
 - La historia es única por paciente; un médico solo la abre si tiene o tuvo una cita asignada con él. Los intentos sin relación de atención se bloquean y quedan marcados en la auditoría.
 - Se registran ingresos, intentos fallidos, cierres de sesión, registros, verificación de identidad, cambios en usuarios, cada movimiento de una cita, el triaje, cada consulta y cada apertura de una historia.
 - Quien tiene citas o historia no se puede eliminar (la historia se conserva); se desactiva.
@@ -32,7 +51,8 @@ CONFIRMADA ─▶ NO ASISTIÓ  ·  PENDIENTE / CONFIRMADA ─▶ CANCELADA
 
 ### Reglas de la agenda
 - Turnos de 30 minutos. Lunes a viernes 7:00 a.m. – 6:00 p.m., sábados 8:00 a.m. – 1:00 p.m., domingos sin consulta.
-- Cada especialidad atiende un paciente por turno y tiene un cupo diario.
+- La agenda es por médico: en cada turno una especialidad recibe tantos pacientes como médicos suyos estén trabajando (sin permiso aprobado). Cada médico tiene un cupo diario (16 citas en especialidades básicas, 8 en las demás).
+- Solo se agendan especialidades con al menos un médico activo; al confirmar o mover una cita se valida que el médico esté libre.
 - Un paciente no puede tener dos citas a la misma hora ni más de 3 solicitudes pendientes.
 - Se agenda con máximo 60 días de anticipación.
 
@@ -53,10 +73,8 @@ Si instala el proyecto en otra carpeta, cambie `app.base_url` en `config/config.
 El script `tareas/recordatorios.php` avisa por el portal y por correo a los pacientes con cita confirmada para el día siguiente (una sola vez por cita). Prográmelo a diario en el **Programador de tareas de Windows** (Crear tarea básica → Diaria → Iniciar un programa):
 
 ```
-Programa:   C:
-mpp\php\php.exe
-Argumentos: C:
-mpp\htdocs\proyecto_productivo	areasecordatorios.php
+Programa:   C:\xampp\php\php.exe
+Argumentos: C:\xampp\htdocs\proyecto_productivo\tareas\recordatorios.php
 ```
 
 ## Cuentas de demostración

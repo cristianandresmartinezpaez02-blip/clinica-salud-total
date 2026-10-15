@@ -105,6 +105,15 @@ function accionesAuditoria(): array
         'cita_confirmada'     => 'Cita confirmada',
         'cita_reprogramada'   => 'Cita reprogramada',
         'cita_estado'         => 'Cambio de estado de cita',
+        'cita_propuesta'      => 'Cambio de cita propuesto al paciente',
+        'cita_propuesta_aceptada'  => 'Cambio de cita aceptado por el paciente',
+        'cita_propuesta_rechazada' => 'Cambio de cita rechazado por el paciente',
+        'permiso_solicitado'  => 'Permiso médico solicitado',
+        'permiso_aprobado'    => 'Permiso médico aprobado',
+        'permiso_rechazado'   => 'Permiso médico rechazado',
+        'permiso_cancelado'   => 'Permiso médico retirado',
+        'permiso_registrado'  => 'Novedad de agenda registrada',
+        'documento_clinico'   => 'Documento clínico generado',
         'triaje'              => 'Signos vitales registrados',
         'antecedentes'        => 'Antecedentes actualizados',
         'historia_vista'      => 'Consulta de historia clínica',
@@ -363,11 +372,15 @@ function medicoAtiendePaciente(mysqli $conexion, int $idMedicoUsuario, int $idPa
 /** Consultas registradas para un paciente (de cualquier médico de la institución). */
 function consultasDePaciente(mysqli $conexion, int $idPacienteUsuario): array
 {
+    require_once __DIR__ . '/historia_clinica_servicio.php';
+    asegurarEsquemaHistoria($conexion);
     $stmt = $conexion->prepare("
         SELECT co.id_consulta, co.fecha_consulta, co.motivo, co.diagnostico, co.tratamiento, co.medicamentos_formulados,
-               ci.id_cita, ci.servicio, ci.nombre_medico
+               ci.id_cita, ci.servicio, ci.nombre_medico,
+               cc.dx_principal_codigo, cc.dx_principal_desc, cc.motivo_consulta, cc.plan_manejo
         FROM consulta co
         INNER JOIN cita ci ON ci.id_cita = co.id_cita
+        LEFT JOIN consulta_clinica cc ON cc.id_consulta = co.id_consulta
         WHERE ci.id_usuario = ?
         ORDER BY co.fecha_consulta DESC");
     $stmt->bind_param('i', $idPacienteUsuario);

@@ -17,6 +17,7 @@ require_once "../conexion/notificaciones_servicio.php";
 require_once "../conexion/farmacia_servicio.php";
 require_once "../conexion/citas_servicio.php";
 require_once "../conexion/clinica_servicio.php";
+require_once "../conexion/historia_clinica_servicio.php";
 
 asegurarEsquemaNotificaciones($conexion);
 
@@ -44,6 +45,7 @@ if (!$idMedico) {
     $idMedico = $conexion->insert_id ?: null;
 }
 asegurarEsquemaCitas($conexion);
+asegurarEsquemaHistoria($conexion);
 $filaNombre = fetchAll($conexion, "SELECT TRIM(CONCAT(nombre, ' ', apellido)) AS n FROM usuario WHERE id_usuario = $idUsuario");
 $nombreMedicoCompleto = $filaNombre[0]['n'] ?? ($_SESSION['nombre'] ?? '');
 
@@ -61,178 +63,54 @@ function citaEsDelMedico(?array $cita, int $idUsuario, string $nombre): bool
 
 // Confirmar o cancelar citas es tarea de Recepción; el médico atiende las que le asignan.
 
-// Guardar diagnóstico médico
+// Permisos y novedades de agenda (mínimo DIAS_PREAVISO_PERMISO días de anticipación)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['accion'] ?? '', ['solicitar_permiso', 'cancelar_permiso'], true)) {
+    $resPermiso = ($_POST['accion'] === 'solicitar_permiso')
+        ? solicitarPermiso($conexion, $idUsuario, $_POST)
+        : cancelarPermiso($conexion, (int) ($_POST['id_permiso'] ?? 0), $idUsuario);
+    $_SESSION['flash_medico'] = ($resPermiso['ok'] ? '✅ ' : '❌ ') . $resPermiso['msg'];
+    header('Location: medico.php?page=permisosPage');
+    exit;
+}
+if (isset($_SESSION['flash_medico'])) {
+    $mensaje = (string) $_SESSION['flash_medico'];
+    unset($_SESSION['flash_medico']);
+}
+
+// Registrar la consulta: historia clínica estructurada y firmada (ver historia_clinica_servicio.php)
+$formPrevio = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'guardar_diagnostico') {
-    $idCita = intval($_POST['id_cita']);
-    $citaData = fetchAll($conexion, "SELECT * FROM cita WHERE id_cita = $idCita");
-    $cita = $citaData[0] ?? null;
+    $idCita = (int) ($_POST['id_cita'] ?? 0);
+    $cita = obtenerCita($conexion, $idCita);
 
     if ($cita && $idMedico && citaEsDelMedico($cita, $idUsuario, $nombreMedicoCompleto) && in_array($cita['estado'] ?? '', ['confirmada', 'en_sala'], true)) {
-        $nombreCompleto = trim($_POST['nombre_completo'] ?? '');
-        $documento = trim($_POST['documento'] ?? '');
-        $edad = trim($_POST['edad'] ?? '');
-        $fechaNacimiento = trim($_POST['fecha_nacimiento'] ?? '');
-        $sexo = trim($_POST['sexo'] ?? '');
-        $direccion = trim($_POST['direccion'] ?? '');
-        $telefonoPac = trim($_POST['telefono'] ?? '');
-        $correoPac = trim($_POST['correo'] ?? '');
-
-        $vieneAcompanado = isset($_POST['viene_acompanado']);
-        $nombreAcompanante = trim($_POST['nombre_acompanante'] ?? '');
-        $tipoDocAcompanante = trim($_POST['tipo_doc_acompanante'] ?? '');
-        $documentoAcompanante = trim($_POST['documento_acompanante'] ?? '');
-        $parentescoAcompanante = trim($_POST['parentesco_acompanante'] ?? '');
-        $telefonoAcompanante = trim($_POST['telefono_acompanante'] ?? '');
-        $direccionAcompanante = trim($_POST['direccion_acompanante'] ?? '');
-        $correoAcompanante = trim($_POST['correo_acompanante'] ?? '');
-
-        $fechaConsulta = $_POST['fecha_consulta'] . ' ' . ($_POST['hora_consulta'] ?? date('H:i:s'));
-        $motivoConsulta = trim($_POST['motivo_consulta'] ?? '');
-        $sintomas = trim($_POST['sintomas'] ?? '');
-        $alergias = trim($_POST['alergias'] ?? '');
-        $medicamentosConsume = trim($_POST['medicamentos_consume'] ?? '');
-
-        $temperatura = trim($_POST['temperatura'] ?? '');
-        $presionArterial = trim($_POST['presion_arterial'] ?? '');
-        $peso = trim($_POST['peso'] ?? '');
-        $estatura = trim($_POST['estatura'] ?? '');
-
-        $examenFisico = trim($_POST['examen_fisico'] ?? '');
-        $examenesSolicitados = trim($_POST['examenes_solicitados'] ?? '');
-        $diagnostico = trim($_POST['diagnostico'] ?? '');
-        $tratamiento = trim($_POST['tratamiento'] ?? '');
-        $medicamentos = trim($_POST['medicamentos'] ?? '');
-        $indicaciones = trim($_POST['indicaciones'] ?? '');
-        $proximaCita = trim($_POST['proxima_cita'] ?? '');
-
-        $datosPacienteTexto = "DATOS DEL PACIENTE:\n"
-            . "Nombre: $nombreCompleto\nDocumento: $documento\nEdad: $edad años\n"
-            . "Fecha nacimiento: $fechaNacimiento\nSexo: $sexo\nDirección: $direccion\n"
-            . "Teléfono: $telefonoPac\nCorreo: $correoPac";
-
-        $datosAcompananteTexto = '';
-        if ($vieneAcompanado && $nombreAcompanante !== '') {
-            $docAcomp = ($tipoDocAcompanante ? "$tipoDocAcompanante " : '') . $documentoAcompanante;
-            $datosAcompananteTexto = "DATOS DEL ACOMPAÑANTE:\n"
-                . "Nombre: $nombreAcompanante\nDocumento: $docAcomp\n"
-                . "Parentesco: $parentescoAcompanante\nTeléfono: $telefonoAcompanante\n"
-                . "Dirección: $direccionAcompanante\nCorreo: $correoAcompanante";
-        } elseif ($vieneAcompanado) {
-            $datosAcompananteTexto = "DATOS DEL ACOMPAÑANTE:\nPaciente reporta acompañante (datos incompletos)";
-        } else {
-            $datosAcompananteTexto = "DATOS DEL ACOMPAÑANTE:\nPaciente sin acompañante registrado";
-        }
-
-        $infoMedica = "INFORMACIÓN MÉDICA:\n"
-            . "Motivo de consulta: $motivoConsulta\n"
-            . "Síntomas: $sintomas\n"
-            . "Alergias: " . ($alergias ?: 'Ninguna reportada') . "\n"
-            . "Medicamentos que consume: " . ($medicamentosConsume ?: 'Ninguno reportado');
-
-        $signosVitales = "SIGNOS VITALES:\n"
-            . "Temperatura: $temperatura\nPresión arterial: $presionArterial\n"
-            . "Peso: $peso\nEstatura: $estatura";
-
-        $motivoCompleto = "$datosPacienteTexto\n\n$datosAcompananteTexto\n\n$infoMedica\n\n$signosVitales\n\nEXAMEN FÍSICO:\n$examenFisico";
-
-        $tratamientoCompleto = "TRATAMIENTO:\n$tratamiento";
-        if ($examenesSolicitados !== '') {
-            $tratamientoCompleto .= "\n\nEXÁMENES SOLICITADOS:\n$examenesSolicitados";
-        }
-        if ($medicamentos !== '') {
-            $tratamientoCompleto .= "\n\nMEDICAMENTOS FORMULADOS:\n$medicamentos";
-        }
-        if ($indicaciones !== '') {
-            $tratamientoCompleto .= "\n\nINDICACIONES:\n$indicaciones";
-        }
-        if ($proximaCita !== '') {
-            $tratamientoCompleto .= "\n\nPRÓXIMA CITA: $proximaCita";
-        }
-
-        $obsHistorial = "Cita #$idCita | Servicio: {$cita['servicio']}\n$signosVitales";
-
-        $idPaciente = null;
-        if (!empty($cita['correo'])) {
-            $correoEsc = $conexion->real_escape_string($cita['correo']);
-            $pacMatch = fetchAll($conexion, "
-                SELECT p.id_paciente FROM paciente p
-                INNER JOIN usuario u ON p.id_usuario = u.id_usuario
-                WHERE u.correo = '$correoEsc' LIMIT 1
-            ");
-            $idPaciente = $pacMatch[0]['id_paciente'] ?? null;
-        }
-
-        $idHistorial = null;
-        if ($idPaciente) {
-            $histExist = fetchAll($conexion, "SELECT id_historial FROM historial_clinico WHERE id_paciente = $idPaciente LIMIT 1");
-            if ($histExist) {
-                $idHistorial = $histExist[0]['id_historial'];
-            } else {
-                $stmtH = $conexion->prepare("INSERT INTO historial_clinico (id_paciente, observaciones, fecha_apertura) VALUES (?, ?, CURDATE())");
-                $obsInit = "Historial abierto desde cita #$idCita";
-                $stmtH->bind_param("is", $idPaciente, $obsInit);
-                $stmtH->execute();
-                $idHistorial = $stmtH->insert_id;
+        $res = guardarConsultaClinica($conexion, $cita, [
+            'id_medico'    => (int) $idMedico,
+            'id_usuario'   => $idUsuario,
+            'nombre'       => $nombreMedicoCompleto,
+            'especialidad' => (string) ($medicoRow[0]['especialidad'] ?? ''),
+            'licencia'     => (string) ($medicoRow[0]['licencia_medica'] ?? ''),
+        ], $_POST);
+        if ($res['ok']) {
+            notificarHistoriaClinicaPaciente($conexion, $cita, $res['diagnostico'], $res['tratamiento'], (string) $cita['nombre'], date('d/m/Y H:i'));
+            if ($res['tiene_formula']) {
+                notificarFarmaceutaDiagnostico($conexion, $res['id_consulta'], (string) $cita['nombre'], $res['diagnostico']);
             }
-        } else {
-            $stmtH = $conexion->prepare("INSERT INTO historial_clinico (id_paciente, observaciones, fecha_apertura) VALUES (NULL, ?, CURDATE())");
-            $obsInit = "Paciente: {$cita['nombre']} | Tel: {$cita['telefono']} | Correo: {$cita['correo']}";
-            $stmtH->bind_param("s", $obsInit);
-            $stmtH->execute();
-            $idHistorial = $stmtH->insert_id;
+            $_SESSION['flash_medico'] = '✅ Consulta firmada y registrada.' . ($res['tiene_formula'] ? ' La fórmula quedó disponible para farmacia.' : '');
+            header('Location: medico.php?page=historialesPage');
+            exit;
         }
-
-        $stmtC = $conexion->prepare("INSERT INTO consulta (id_historial, id_medico, fecha_consulta, motivo, diagnostico, tratamiento) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmtC->bind_param("iissss", $idHistorial, $idMedico, $fechaConsulta, $motivoCompleto, $diagnostico, $tratamientoCompleto);
-        $ok = $stmtC->execute();
-        $idConsulta = $ok ? (int) $stmtC->insert_id : 0;
-
-        if ($ok && $idConsulta) {
-            asegurarEsquemaFarmacia($conexion);
-            $stmtMeta = $conexion->prepare("UPDATE consulta SET medicamentos_formulados = ?, nombre_paciente = ?, correo_paciente = ?, telefono_paciente = ?, id_cita = ? WHERE id_consulta = ?");
-            $stmtMeta->bind_param("ssssii", $medicamentos, $nombreCompleto, $correoPac, $telefonoPac, $idCita, $idConsulta);
-            $stmtMeta->execute();
-        }
-
-        if ($ok) {
-            $stmtObs = $conexion->prepare("UPDATE historial_clinico SET observaciones = CONCAT(COALESCE(observaciones,''), '\n\n--- Consulta ', NOW(), ' ---\n', ?) WHERE id_historial = ?");
-            $stmtObs->bind_param("si", $obsHistorial, $idHistorial);
-            $stmtObs->execute();
-
-            $stmtUp = $conexion->prepare("UPDATE cita SET estado = 'atendida' WHERE id_cita = ?");
-            $stmtUp->bind_param("i", $idCita);
-            $stmtUp->execute();
-
-            $notif = "Consulta registrada: {$cita['nombre']} - Diagnóstico guardado";
-            $stmtN = $conexion->prepare("INSERT INTO notificaciones (tipo_usuario, mensaje) VALUES ('medico', ?)");
-            $stmtN->bind_param("s", $notif);
-            $stmtN->execute();
-
-            $resHist = notificarHistoriaClinicaPaciente(
-                $conexion, $cita, $diagnostico, $tratamientoCompleto,
-                $nombreCompleto, date('d/m/Y H:i', strtotime($fechaConsulta))
-            );
-            if ($idConsulta) {
-                notificarFarmaceutaDiagnostico($conexion, $idConsulta, $nombreCompleto, $diagnostico);
-            }
-            if (!empty($cita['id_usuario'])) {
-                $antPrev = obtenerAntecedentes($conexion, (int) $cita['id_usuario']);
-                if (trim($alergias) !== '') { $antPrev['alergias'] = $alergias; }
-                if (trim($medicamentosConsume) !== '') { $antPrev['medicamentos_habituales'] = $medicamentosConsume; }
-                guardarAntecedentes($conexion, (int) $cita['id_usuario'], $antPrev);
-            }
-            registrarAuditoria($conexion, 'consulta_registrada', "Cita #{$idCita} ({$cita['nombre']}): " . mb_substr($diagnostico, 0, 200), 'cita', $idCita);
-            $mensaje = '✅ Consulta registrada. La fórmula quedó disponible para farmacia.';
-            $pageRedirect = 'historialesPage';
-        } else {
-            $mensaje = '❌ Error al guardar el diagnóstico: ' . $conexion->error;
-            $pageRedirect = 'diagnosticoPage';
-        }
+        // Se conserva lo escrito para corregir sin perder el registro
+        $mensaje = '❌ ' . $res['msg'];
+        $formPrevio = $_POST;
+        $_GET['id_cita'] = $idCita;
+        $pageRedirect = 'diagnosticoPage';
     } else {
         $mensaje = '❌ Solo puede registrar la consulta de sus citas confirmadas o con el paciente en sala.';
         $pageRedirect = 'citasPage';
     }
 }
+
 
 if (isset($_GET['msg'])) {
     $mensaje = $_GET['msg'];
@@ -320,8 +198,9 @@ foreach ($citas as $c) {
 $consultas = $idMedico
     ? fetchAll($conexion, "
         SELECT c.*, h.id_paciente, h.observaciones AS hist_obs,
-               u.nombre AS pac_nombre, u.apellido AS pac_apellido
+               u.nombre AS pac_nombre, u.apellido AS pac_apellido, cc.dx_principal_codigo, cc.dx_principal_desc
         FROM consulta c
+        LEFT JOIN consulta_clinica cc ON cc.id_consulta = c.id_consulta
         LEFT JOIN historial_clinico h ON c.id_historial = h.id_historial
         LEFT JOIN paciente p ON h.id_paciente = p.id_paciente
         LEFT JOIN usuario u ON p.id_usuario = u.id_usuario
@@ -343,6 +222,7 @@ $citasParaDiagnostico = array_merge($enSala, array_values(array_filter($citas, f
 
 // ---------- Panel clínico del formulario de consulta ----------
 $signosCita = $citaDiagnostico ? signosDeCita($conexion, (int) $citaDiagnostico['id_cita']) : null;
+$fichaCita = ($citaDiagnostico && !empty($citaDiagnostico['id_usuario'])) ? fichaPaciente($conexion, (int) $citaDiagnostico['id_usuario']) : null;
 $antecedentesCita = ($citaDiagnostico && !empty($citaDiagnostico['id_usuario'])) ? obtenerAntecedentes($conexion, (int) $citaDiagnostico['id_usuario']) : [];
 $consultasPrevias = ($citaDiagnostico && !empty($citaDiagnostico['id_usuario'])) ? consultasDePaciente($conexion, (int) $citaDiagnostico['id_usuario']) : [];
 if ($citaDiagnostico && !empty($citaDiagnostico['id_usuario']) && $_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -368,6 +248,8 @@ if (!empty($_GET['historia'])) {
 }
 
 $especialidadMedico = $medicoRow[0]['especialidad'] ?? 'Medicina General';
+$misPermisos = listarPermisos($conexion, ['id_medico' => $idUsuario], 50);
+$permisosPendientes = count(array_filter($misPermisos, fn($p) => $p['estado'] === 'pendiente'));
 $nombreMedicoSesion = trim(($_SESSION['nombre'] ?? '') . ' ' . ($_SESSION['apellido'] ?? ''));
 if ($nombreMedicoSesion === '') {
     $nombreMedicoSesion = $_SESSION['nombre'] ?? 'Dr. Médico';
@@ -443,6 +325,16 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
         .panel-clinico__titulo { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #0b5394; margin-bottom: .4rem; }
         @media (max-width: 992px) { .panel-clinico { grid-template-columns: 1fr; } }
         body.tema-oscuro .panel-clinico { background: #172538; border-color: #24344a; }
+        .ficha-id { display: grid; grid-template-columns: repeat(6, 1fr); gap: .75rem 1rem; background: #f6f9fc; border: 1px solid #e4e9f0; border-radius: 12px; padding: .8rem 1rem; }
+        .ficha-id span { display: block; font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: #64748b; }
+        .ficha-id strong { font-size: .95rem; }
+        @media (max-width: 992px) { .ficha-id { grid-template-columns: repeat(2, 1fr); } }
+        body.tema-oscuro .ficha-id { background: #172538; border-color: #24344a; }
+        .soap { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; background: #157347; color: #fff; font-size: .8rem; margin-right: .35rem; }
+        .firma-medico { background: #f0faf4; border: 1px solid #cdebd9; border-radius: 12px; padding: 1rem 1.1rem; }
+        body.tema-oscuro .firma-medico { background: #13291e; border-color: #23462f; }
+        .tabla-formula td, #tablaOrdenes td { padding: .25rem; }
+        .doc-links { display: flex; flex-wrap: wrap; gap: .35rem; }
         .dato-paciente {
             background: #f8f9fa;
             border-radius: 8px;
@@ -464,7 +356,8 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
             <a href="#" data-page="pacientesPage"><i class="bi bi-people"></i> Mis Pacientes</a>
             <a href="#" data-page="historiaPage"><i class="bi bi-person-lines-fill"></i> Historia clínica</a>
             <a href="#" data-page="historialesPage"><i class="bi bi-journal-medical"></i> Mis consultas</a>
-            <a href="#" data-page="diagnosticoPage"><i class="bi bi-clipboard2-pulse"></i> Diagnóstico</a>
+            <a href="#" data-page="diagnosticoPage"><i class="bi bi-clipboard2-pulse"></i> Atender consulta</a>
+            <a href="#" data-page="permisosPage"><i class="bi bi-calendar-x"></i> Permisos <?php if ($permisosPendientes): ?><span class="badge bg-warning text-dark"><?php echo $permisosPendientes; ?></span><?php endif; ?></a>
             <?php echo panelSidebarFooter(true); ?>
         </nav>
 
@@ -786,9 +679,15 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                                                         <strong><?php echo htmlspecialchars($co['servicio']); ?> · <?php echo htmlspecialchars($co['nombre_medico'] ?? ''); ?></strong>
                                                         <span class="text-muted small"><?php echo date('d/m/Y g:i a', strtotime($co['fecha_consulta'])); ?></span>
                                                     </div>
-                                                    <p class="mb-1 mt-2"><span class="text-muted small text-uppercase fw-bold">Diagnóstico</span><br><?php echo nl2br(htmlspecialchars($co['diagnostico'] ?? '')); ?></p>
+                                                    <?php if (!empty($co['dx_principal_codigo'])): ?>
+                                                        <p class="mb-1 mt-2"><span class="badge bg-success-subtle text-success-emphasis me-1"><?php echo htmlspecialchars($co['dx_principal_codigo']); ?></span><?php echo htmlspecialchars($co['dx_principal_desc']); ?></p>
+                                                        <p class="small text-muted mb-1"><strong>Motivo:</strong> <?php echo htmlspecialchars($co['motivo_consulta']); ?></p>
+                                                        <p class="small mb-2"><strong>Plan:</strong> <?php echo htmlspecialchars(mb_strimwidth((string) $co['plan_manejo'], 0, 220, '…')); ?></p>
+                                                    <?php else: ?>
+                                                        <p class="mb-1 mt-2"><span class="text-muted small text-uppercase fw-bold">Diagnóstico</span><br><?php echo nl2br(htmlspecialchars($co['diagnostico'] ?? '')); ?></p>
+                                                    <?php endif; ?>
                                                     <?php if (!empty($co['medicamentos_formulados'])): ?><p class="mb-1 small"><strong>Fórmula:</strong> <?php echo nl2br(htmlspecialchars($co['medicamentos_formulados'])); ?></p><?php endif; ?>
-                                                    <a class="small" href="exportar_diagnostico.php?id=<?php echo (int) $co['id_consulta']; ?>&formato=ver" target="_blank" rel="noopener">Ver documento completo</a>
+                                                    <div class="doc-links"><?php echo enlacesDocumentosConsulta($conexion, (int) $co['id_consulta']); ?></div>
                                                 </div>
                                             <?php endforeach; ?>
                                         </div>
@@ -806,48 +705,36 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                 </div>
 
                 <div id="historialesPage" class="page-section">
-                    <h2>Historiales Médicos</h2>
-                    <p class="text-muted">Consultas y diagnósticos registrados</p>
+                    <h2 class="mb-1"><i class="bi bi-journal-medical"></i> Mis consultas</h2>
+                    <p class="text-muted">Consultas que usted firmó. Los registros firmados no se modifican; abra el documento para imprimirlo o descargarlo.</p>
                     <?php if (count($consultas) > 0): ?>
-                        <?php foreach ($consultas as $cons): ?>
-                        <div class="card shadow-sm mb-3">
-                            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                                <strong>
-                                    <?php
-                                    $nomPac = trim(($cons['pac_nombre'] ?? '') . ' ' . ($cons['pac_apellido'] ?? ''));
-                                    echo $nomPac !== '' ? htmlspecialchars($nomPac) : 'Paciente (cita externa)';
-                                    ?>
-                                </strong>
-                                <div class="d-flex align-items-center gap-2 flex-wrap">
-                                    <span class="text-muted small"><?php echo date('d/m/Y H:i', strtotime($cons['fecha_consulta'])); ?></span>
-                                    <a href="exportar_diagnostico.php?id=<?php echo $cons['id_consulta']; ?>&formato=word" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-word"></i> Word</a>
-                                    <a href="exportar_diagnostico.php?id=<?php echo $cons['id_consulta']; ?>&formato=pdf" target="_blank" class="btn btn-sm btn-outline-danger"><i class="bi bi-file-earmark-pdf"></i> PDF</a>
-                                </div>
-                            </div>
-                            <div class="card-body">
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <h6 class="text-success">Motivo / Examen</h6>
-                                        <p class="small text-muted" style="white-space: pre-line;"><?php echo htmlspecialchars($cons['motivo']); ?></p>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <h6 class="text-success">Diagnóstico</h6>
-                                        <p class="fw-semibold"><?php echo nl2br(htmlspecialchars($cons['diagnostico'])); ?></p>
-                                    </div>
-                                </div>
-                                <h6 class="text-success mt-2">Tratamiento e indicaciones</h6>
-                                <p class="small mb-0" style="white-space: pre-line;"><?php echo htmlspecialchars($cons['tratamiento']); ?></p>
+                        <div class="card shadow-sm">
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead><tr><th>Fecha</th><th>Paciente</th><th>Diagnóstico principal</th><th>Documentos</th></tr></thead>
+                                    <tbody>
+                                    <?php foreach ($consultas as $cons):
+                                        $nomPac = trim(($cons['pac_nombre'] ?? '') . ' ' . ($cons['pac_apellido'] ?? '')) ?: ($cons['nombre_paciente'] ?? 'Paciente');
+                                        $dxCons = !empty($cons['dx_principal_codigo']) ? $cons['dx_principal_codigo'] . ' — ' . $cons['dx_principal_desc'] : strtok((string) $cons['diagnostico'], "\n"); ?>
+                                        <tr>
+                                            <td class="text-nowrap"><?php echo date('d/m/Y', strtotime($cons['fecha_consulta'])); ?><br><small class="text-muted"><?php echo date('g:i a', strtotime($cons['fecha_consulta'])); ?></small></td>
+                                            <td><?php echo htmlspecialchars($nomPac); ?></td>
+                                            <td><?php echo htmlspecialchars(mb_strimwidth((string) $dxCons, 0, 90, '…')); ?></td>
+                                            <td><div class="doc-links"><?php echo enlacesDocumentosConsulta($conexion, (int) $cons['id_consulta']); ?></div></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
-                        <?php endforeach; ?>
                     <?php else: ?>
-                        <div class="alert alert-light border">No hay historiales registrados. Apruebe una cita y complete el formulario de diagnóstico.</div>
+                        <div class="alert alert-light border">Aún no ha registrado consultas.</div>
                     <?php endif; ?>
                 </div>
 
                 <!-- Diagnóstico -->
                 <div id="diagnosticoPage" class="page-section">
-                    <h2 class="mb-3">Registro Clínico — Diagnóstico</h2>
+                    <h2 class="mb-3">Atender consulta</h2>
 
                     <?php if (!$citaDiagnostico && count($citasParaDiagnostico) > 0): ?>
                     <div class="card shadow-sm mb-4">
@@ -866,16 +753,39 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                     <?php endif; ?>
 
                     <?php if ($citaDiagnostico): ?>
-                    <form method="POST" class="form-clinico">
+                    <?php
+                    // Valores del formulario: los enviados (si hubo un error) o los de la ficha del paciente
+                    $fp = $formPrevio ?? [];
+                    $val = fn(string $k, string $def = '') => htmlspecialchars((string) ($fp[$k] ?? $def));
+                    $valSub = fn(string $grupo, string $k, string $def = '') => htmlspecialchars((string) ($fp[$grupo][$k] ?? $def));
+                    $sel = fn(string $k, string $v, string $def = '') => ((string) ($fp[$k] ?? $def) === $v) ? ' selected' : '';
+                    $filasFormula = max(1, count(array_filter((array) ($fp['formula']['medicamento'] ?? []), fn($m) => trim((string) $m) !== '')));
+                    $filasOrden = max(1, count(array_filter((array) ($fp['orden']['descripcion'] ?? []), fn($m) => trim((string) $m) !== '')));
+                    $tipoConsultaDef = $consultasPrevias ? 'control' : 'primera_vez';
+                    $pacNombre = $fichaCita ? trim($fichaCita['nombre'] . ' ' . $fichaCita['apellido']) : $citaDiagnostico['nombre'];
+                    ?>
+                    <form method="POST" class="form-clinico" id="formConsulta">
                         <input type="hidden" name="accion" value="guardar_diagnostico">
-                        <input type="hidden" name="id_cita" value="<?php echo $citaDiagnostico['id_cita']; ?>">
+                        <input type="hidden" name="id_cita" value="<?php echo (int) $citaDiagnostico['id_cita']; ?>">
 
-                        <div class="encabezado">
-                            <h3><i class="bi bi-hospital"></i> Formulario de Consulta Médica</h3>
-                            <small>Historia Clínica — Registro de atención al paciente</small>
+                        <div class="encabezado d-flex justify-content-between flex-wrap gap-2">
+                            <div>
+                                <h3><i class="bi bi-file-earmark-medical"></i> Historia clínica — Consulta externa</h3>
+                                <small>Cita #<?php echo (int) $citaDiagnostico['id_cita']; ?> · <?php echo htmlspecialchars($citaDiagnostico['servicio']); ?> · <?php echo date('d/m/Y g:i a', strtotime($citaDiagnostico['fecha'] . ' ' . $citaDiagnostico['hora'])); ?></small>
+                            </div>
+                            <div class="text-end small">Atención: <?php echo date('d/m/Y g:i a'); ?><br><?php echo htmlspecialchars($nombreMedicoCompleto); ?></div>
                         </div>
 
                         <div class="cuerpo">
+                            <!-- Identificación (viene de la ficha del paciente, no se digita) -->
+                            <div class="ficha-id mb-3">
+                                <div><span>Paciente</span><strong><?php echo htmlspecialchars($pacNombre); ?></strong></div>
+                                <div><span>Documento</span><strong><?php echo htmlspecialchars($fichaCita ? trim(($fichaCita['tipo_documento'] ?? '') . ' ' . ($fichaCita['documento'] ?? '')) : '—'); ?></strong></div>
+                                <div><span>Edad</span><strong><?php echo $fichaCita && $fichaCita['edad'] !== null ? (int) $fichaCita['edad'] . ' años' : '—'; ?></strong></div>
+                                <div><span>Sexo</span><strong><?php echo htmlspecialchars($fichaCita['sexo'] ?? '—') ?: '—'; ?></strong></div>
+                                <div><span>Teléfono</span><strong><?php echo htmlspecialchars($fichaCita['telefono'] ?? $citaDiagnostico['telefono'] ?? '—'); ?></strong></div>
+                                <div><span>Grupo sanguíneo</span><strong><?php echo htmlspecialchars($antecedentesCita['grupo_sanguineo'] ?? '—') ?: '—'; ?></strong></div>
+                            </div>
                             <?php if (!empty($antecedentesCita['alergias'])): ?>
                                 <div class="alerta-alergia mb-3"><i class="bi bi-exclamation-octagon-fill"></i> ALERGIAS: <?php echo htmlspecialchars($antecedentesCita['alergias']); ?></div>
                             <?php endif; ?>
@@ -887,246 +797,243 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                                         <small class="text-muted"><?php echo htmlspecialchars($signosCita['nombre_registro'] ?? ''); ?> · <?php echo date('g:i a', strtotime($signosCita['fecha'])); ?><?php echo !empty($signosCita['observaciones']) ? ' · ' . htmlspecialchars($signosCita['observaciones']) : ''; ?></small>
                                         <?php if ($alertasCita): ?><div class="text-warning-emphasis small fw-semibold mt-1"><i class="bi bi-exclamation-triangle"></i> <?php echo htmlspecialchars(implode(' · ', $alertasCita)); ?></div><?php endif; ?>
                                     <?php else: ?>
-                                        <p class="text-muted mb-0">Sin triaje registrado. Registre los signos en la sección «Signos vitales».</p>
+                                        <p class="text-muted mb-0">Sin triaje. Registre los signos vitales en el examen físico.</p>
                                     <?php endif; ?>
                                 </div>
                                 <div>
-                                    <div class="panel-clinico__titulo"><i class="bi bi-clipboard2-heart"></i> Antecedentes</div>
-                                    <?php $resAnt = array_filter([
-                                        'Crónicas' => $antecedentesCita['enfermedades_cronicas'] ?? '',
-                                        'Medicamentos' => $antecedentesCita['medicamentos_habituales'] ?? '',
-                                        'Cirugías' => $antecedentesCita['antecedentes_quirurgicos'] ?? '',
-                                        'Grupo' => $antecedentesCita['grupo_sanguineo'] ?? '',
-                                    ]); ?>
-                                    <?php if ($resAnt): foreach ($resAnt as $k => $v): ?><div class="small"><strong><?php echo $k; ?>:</strong> <?php echo htmlspecialchars($v); ?></div><?php endforeach; else: ?><p class="text-muted mb-0">Sin antecedentes registrados.</p><?php endif; ?>
+                                    <div class="panel-clinico__titulo"><i class="bi bi-chat-left-text"></i> Motivo al pedir la cita</div>
+                                    <p class="small mb-0"><?php echo htmlspecialchars($citaDiagnostico['motivo'] ?: 'No indicado.'); ?></p>
                                 </div>
                                 <div>
                                     <div class="panel-clinico__titulo"><i class="bi bi-journal-medical"></i> Consultas anteriores (<?php echo count($consultasPrevias); ?>)</div>
                                     <?php foreach (array_slice($consultasPrevias, 0, 3) as $cp): ?>
-                                        <div class="small mb-1"><strong><?php echo date('d/m/Y', strtotime($cp['fecha_consulta'])); ?></strong> · <?php echo htmlspecialchars($cp['servicio']); ?> — <?php echo htmlspecialchars(mb_strimwidth((string) $cp['diagnostico'], 0, 70, '…')); ?></div>
+                                        <div class="small mb-1"><strong><?php echo date('d/m/Y', strtotime($cp['fecha_consulta'])); ?></strong> · <?php echo htmlspecialchars($cp['servicio']); ?> — <?php echo htmlspecialchars(mb_strimwidth((string) ($cp['dx_principal_codigo'] ? $cp['dx_principal_codigo'] . ' ' . $cp['dx_principal_desc'] : $cp['diagnostico']), 0, 70, '…')); ?></div>
                                     <?php endforeach; ?>
                                     <?php if (!$consultasPrevias): ?><p class="text-muted mb-0">Primera consulta en la clínica.</p><?php endif; ?>
-                                    <?php if (!empty($citaDiagnostico['id_usuario'])): ?><a class="small" href="?historia=<?php echo (int) $citaDiagnostico['id_usuario']; ?>">Ver historia completa</a><?php endif; ?>
-                                </div>
-                            </div>
-                            <div class="seccion-titulo"><i class="bi bi-person-vcard"></i> Datos del paciente</div>
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label">Nombre completo *</label>
-                                    <input type="text" class="form-control" name="nombre_completo" value="<?php echo htmlspecialchars($datosPacienteForm['nombre_completo']); ?>" required>
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Documento de identidad</label>
-                                    <input type="text" class="form-control" name="documento" value="<?php echo htmlspecialchars($datosPacienteForm['documento']); ?>" placeholder="Ej: 1234567890">
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Edad</label>
-                                    <input type="number" class="form-control" name="edad" id="campoEdad" min="0" max="120" value="<?php echo htmlspecialchars($datosPacienteForm['edad']); ?>" placeholder="Años">
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Fecha de nacimiento</label>
-                                    <input type="date" class="form-control" name="fecha_nacimiento" id="campoFechaNac" value="<?php echo htmlspecialchars($datosPacienteForm['fecha_nacimiento']); ?>">
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Sexo</label>
-                                    <select class="form-select" name="sexo">
-                                        <option value="">— Seleccionar —</option>
-                                        <option value="Masculino" <?php echo $datosPacienteForm['sexo'] === 'Masculino' ? 'selected' : ''; ?>>Masculino</option>
-                                        <option value="Femenino" <?php echo $datosPacienteForm['sexo'] === 'Femenino' ? 'selected' : ''; ?>>Femenino</option>
-                                        <option value="Otro" <?php echo $datosPacienteForm['sexo'] === 'Otro' ? 'selected' : ''; ?>>Otro</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Dirección</label>
-                                    <input type="text" class="form-control" name="direccion" value="<?php echo htmlspecialchars($datosPacienteForm['direccion']); ?>" placeholder="Dirección de residencia">
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Teléfono *</label>
-                                    <input type="text" class="form-control" name="telefono" value="<?php echo htmlspecialchars($datosPacienteForm['telefono']); ?>" required>
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Correo electrónico *</label>
-                                    <input type="email" class="form-control" name="correo" value="<?php echo htmlspecialchars($datosPacienteForm['correo']); ?>" required>
-                                </div>
-                                <div class="col-md-6">
-                                    <small class="text-muted">Cita #<?php echo $citaDiagnostico['id_cita']; ?> · Servicio: <?php echo htmlspecialchars($citaDiagnostico['servicio']); ?> · Agendada: <?php echo date('d/m/Y H:i', strtotime($citaDiagnostico['fecha'] . ' ' . $citaDiagnostico['hora'])); ?></small>
+                                    <?php if (!empty($citaDiagnostico['id_usuario'])): ?><a class="small" href="?historia=<?php echo (int) $citaDiagnostico['id_usuario']; ?>" target="_blank" rel="noopener">Ver historia completa</a><?php endif; ?>
                                 </div>
                             </div>
 
-                            <div class="seccion-titulo"><i class="bi bi-people"></i> Datos del acompañante</div>
+                            <!-- Datos de la atención -->
+                            <div class="seccion-titulo"><i class="bi bi-info-circle"></i> Datos de la atención</div>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label">Tipo de consulta *</label>
+                                    <select class="form-select" name="tipo_consulta" required>
+                                        <?php foreach (tiposConsulta() as $k => $t): ?><option value="<?php echo $k; ?>"<?php echo $sel('tipo_consulta', $k, $tipoConsultaDef); ?>><?php echo $t; ?></option><?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Causa externa *</label>
+                                    <select class="form-select" name="causa_externa" required>
+                                        <?php foreach (causasExternas() as $k => $t): ?><option value="<?php echo $k; ?>"<?php echo $sel('causa_externa', $k, 'enfermedad_general'); ?>><?php echo $t; ?></option><?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-4 d-flex align-items-end">
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" name="viene_acompanado" id="vieneAcompanado" value="1"<?php echo !empty($fp['viene_acompanado']) ? ' checked' : ''; ?>>
+                                        <label class="form-check-label" for="vieneAcompanado">Viene con acompañante o responsable</label>
+                                    </div>
+                                </div>
+                                <div id="bloqueAcompanante" class="col-12" style="display:none">
+                                    <div class="row g-3">
+                                        <div class="col-md-5"><label class="form-label">Nombre del acompañante *</label><input type="text" class="form-control" name="acompanante_nombre" id="nombreAcompanante" maxlength="120" value="<?php echo $val('acompanante_nombre'); ?>"></div>
+                                        <div class="col-md-4"><label class="form-label">Parentesco *</label><input type="text" class="form-control" name="acompanante_parentesco" id="parentescoAcompanante" maxlength="60" list="listaParentesco" value="<?php echo $val('acompanante_parentesco'); ?>"></div>
+                                        <div class="col-md-3"><label class="form-label">Teléfono</label><input type="tel" class="form-control" name="acompanante_telefono" maxlength="20" value="<?php echo $val('acompanante_telefono'); ?>"></div>
+                                    </div>
+                                    <datalist id="listaParentesco"><option>Madre</option><option>Padre</option><option>Hijo(a)</option><option>Cónyuge</option><option>Hermano(a)</option><option>Abuelo(a)</option><option>Cuidador(a)</option><option>Otro</option></datalist>
+                                </div>
+                            </div>
+
+                            <!-- S: Anamnesis -->
+                            <div class="seccion-titulo"><span class="soap">S</span> Anamnesis</div>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label class="form-label">Motivo de consulta * <span class="text-muted fw-normal small">(en palabras del paciente)</span></label>
+                                    <input type="text" class="form-control" name="motivo_consulta" maxlength="1000" required value="<?php echo $val('motivo_consulta', (string) ($citaDiagnostico['motivo'] ?? '')); ?>" placeholder="Ej: «Tengo dolor de garganta y fiebre desde hace 3 días»">
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label">Enfermedad actual *</label>
+                                    <textarea class="form-control" name="enfermedad_actual" rows="4" required placeholder="Inicio, evolución, características, síntomas asociados, tratamientos recibidos…"><?php echo $val('enfermedad_actual'); ?></textarea>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label">Revisión por sistemas</label>
+                                    <textarea class="form-control" name="revision_sistemas" rows="2" placeholder="Síntomas en otros sistemas. Ej: Niega disnea, dolor torácico, síntomas urinarios…"><?php echo $val('revision_sistemas'); ?></textarea>
+                                </div>
+                            </div>
+
+                            <div class="seccion-titulo"><i class="bi bi-clipboard2-heart"></i> Antecedentes <span class="text-muted fw-normal text-transform-none small">(actualizan la ficha del paciente)</span></div>
+                            <div class="row g-3">
+                                <?php foreach (camposAntecedentes() as $campo => $etq): ?>
+                                <div class="col-md-6">
+                                    <label class="form-label"><?php echo $etq; ?></label>
+                                    <textarea class="form-control" name="ant[<?php echo $campo; ?>]" rows="2" placeholder="<?php echo $campo === 'alergias' ? 'No refiere' : 'Niega'; ?>"><?php echo $valSub('ant', $campo, (string) ($antecedentesCita[$campo] ?? '')); ?></textarea>
+                                </div>
+                                <?php endforeach; ?>
+                                <div class="col-md-6">
+                                    <label class="form-label">Grupo sanguíneo</label>
+                                    <select class="form-select" name="ant[grupo_sanguineo]">
+                                        <option value="">No registrado</option>
+                                        <?php $gs = (string) ($fp['ant']['grupo_sanguineo'] ?? $antecedentesCita['grupo_sanguineo'] ?? ''); foreach (gruposSanguineos() as $g): ?><option<?php echo $gs === $g ? ' selected' : ''; ?>><?php echo $g; ?></option><?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label">Otros antecedentes</label>
+                                    <textarea class="form-control" name="antecedentes_otros" rows="2" placeholder="Gineco-obstétricos, tóxicos (tabaco, alcohol), vacunas, hospitalizaciones…"><?php echo $val('antecedentes_otros'); ?></textarea>
+                                </div>
+                            </div>
+
+                            <!-- O: Examen físico -->
+                            <div class="seccion-titulo"><span class="soap">O</span> Examen físico</div>
+                            <?php if ($signosCita): ?>
+                                <p class="dato-paciente mb-3"><strong>Signos vitales (triaje):</strong> <?php echo htmlspecialchars(resumenSignos($signosCita)); ?></p>
+                            <?php else: ?>
+                                <div class="row g-2 mb-3">
+                                    <?php foreach (['presion_sistolica' => 'PA sistólica *', 'presion_diastolica' => 'PA diastólica *', 'frecuencia_cardiaca' => 'FC (lpm) *', 'frecuencia_respiratoria' => 'FR (rpm)', 'temperatura' => 'T (°C) *', 'saturacion' => 'SpO₂ (%) *', 'peso' => 'Peso (kg)', 'talla' => 'Talla (cm)'] as $k => $etq): ?>
+                                    <div class="col-6 col-md-3"><label class="form-label small"><?php echo $etq; ?></label><input type="number" step="any" class="form-control form-control-sm" name="signos[<?php echo $k; ?>]" value="<?php echo $valSub('signos', $k); ?>"></div>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endif; ?>
+                            <div class="row g-3">
+                                <?php foreach (sistemasExamenFisico() as $k => $etq): ?>
+                                <div class="col-md-6">
+                                    <label class="form-label"><?php echo $etq; ?><?php echo $k === 'aspecto_general' ? ' *' : ''; ?></label>
+                                    <textarea class="form-control" name="examen[<?php echo $k; ?>]" rows="2"<?php echo $k === 'aspecto_general' ? ' required' : ''; ?> placeholder="<?php echo $k === 'aspecto_general' ? 'Ej: Alerta, orientado, hidratado, sin dificultad respiratoria' : 'Sin alteraciones'; ?>"><?php echo $valSub('examen', $k); ?></textarea>
+                                </div>
+                                <?php endforeach; ?>
+                            </div>
+
+                            <!-- A: Análisis y diagnóstico -->
+                            <div class="seccion-titulo"><span class="soap">A</span> Análisis e impresión diagnóstica</div>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label class="form-label">Análisis *</label>
+                                    <textarea class="form-control" name="analisis" rows="3" required placeholder="Interpretación clínica de los hallazgos y razonamiento diagnóstico"><?php echo $val('analisis'); ?></textarea>
+                                </div>
+                                <div class="col-md-8">
+                                    <label class="form-label">Diagnóstico principal (CIE-10) *</label>
+                                    <input type="text" class="form-control" name="dx_principal" id="dxPrincipal" list="listaCie10" required autocomplete="off" value="<?php echo $val('dx_principal'); ?>" placeholder="Escriba el código o el nombre. Ej: J02.9 o faringitis">
+                                    <input type="text" class="form-control form-control-sm mt-1" name="dx_principal_desc" id="dxDesc" maxlength="255" value="<?php echo $val('dx_principal_desc'); ?>" placeholder="Descripción (solo si el código no está en la lista)" style="display:none">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Tipo de diagnóstico *</label>
+                                    <select class="form-select" name="dx_tipo" required>
+                                        <?php foreach (tiposDiagnostico() as $k => $t): ?><option value="<?php echo $k; ?>"<?php echo $sel('dx_tipo', $k, 'impresion'); ?>><?php echo $t; ?></option><?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <?php for ($i = 0; $i < 3; $i++): ?>
+                                <div class="col-md-4">
+                                    <label class="form-label small">Diagnóstico relacionado <?php echo $i + 1; ?></label>
+                                    <input type="text" class="form-control form-control-sm" name="dx_relacionado[]" list="listaCie10" autocomplete="off" value="<?php echo htmlspecialchars((string) ($fp['dx_relacionado'][$i] ?? '')); ?>">
+                                </div>
+                                <?php endfor; ?>
+                                <datalist id="listaCie10">
+                                    <?php foreach (catalogoCie10() as $cod => $desc): ?><option value="<?php echo $cod . ' — ' . htmlspecialchars($desc); ?>"></option><?php endforeach; ?>
+                                </datalist>
+                            </div>
+
+                            <!-- P: Plan -->
+                            <div class="seccion-titulo"><span class="soap">P</span> Plan</div>
                             <div class="mb-3">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" name="viene_acompanado" id="vieneAcompanado" value="1">
-                                    <label class="form-check-label fw-semibold" for="vieneAcompanado">
-                                        El paciente viene acompañado
-                                    </label>
-                                </div>
-                                <small class="text-muted">Marque esta casilla si hay una persona responsable o acompañante en la consulta.</small>
+                                <label class="form-label">Plan de manejo / conducta *</label>
+                                <textarea class="form-control" name="plan_manejo" rows="3" required placeholder="Conducta: manejo ambulatorio, terapias, dieta, remisiones…"><?php echo $val('plan_manejo'); ?></textarea>
                             </div>
-                            <div id="bloqueAcompanante" class="row g-3" style="display:none;">
-                                <div class="col-md-6">
-                                    <label class="form-label">Nombre completo del acompañante *</label>
-                                    <input type="text" class="form-control" name="nombre_acompanante" id="nombreAcompanante" placeholder="Nombre y apellidos">
+
+                            <label class="form-label fw-semibold"><i class="bi bi-capsule"></i> Fórmula médica</label>
+                            <div class="table-responsive mb-2">
+                                <table class="table table-sm align-middle tabla-formula" id="tablaFormula">
+                                    <thead><tr><th style="min-width:180px">Medicamento</th><th style="min-width:130px">Presentación</th><th style="min-width:110px">Dosis</th><th style="min-width:120px">Vía</th><th style="min-width:150px">Frecuencia</th><th style="width:90px">Días</th><th style="width:90px">Cantidad</th><th style="min-width:150px">Indicaciones</th><th></th></tr></thead>
+                                    <tbody>
+                                    <?php for ($i = 0; $i < $filasFormula; $i++): $fv = fn($k) => htmlspecialchars((string) ($fp['formula'][$k][$i] ?? '')); ?>
+                                        <tr>
+                                            <td><input type="text" class="form-control form-control-sm" name="formula[medicamento][]" list="listaMedicamentos" maxlength="150" value="<?php echo $fv('medicamento'); ?>" placeholder="Ej: Acetaminofén"></td>
+                                            <td><input type="text" class="form-control form-control-sm" name="formula[presentacion][]" maxlength="120" value="<?php echo $fv('presentacion'); ?>" placeholder="500 mg tableta"></td>
+                                            <td><input type="text" class="form-control form-control-sm" name="formula[dosis][]" maxlength="80" value="<?php echo $fv('dosis'); ?>" placeholder="1 tableta"></td>
+                                            <td><select class="form-select form-select-sm" name="formula[via][]"><?php foreach (viasAdministracion() as $via): ?><option<?php echo ($fp['formula']['via'][$i] ?? 'Oral') === $via ? ' selected' : ''; ?>><?php echo $via; ?></option><?php endforeach; ?></select></td>
+                                            <td><input type="text" class="form-control form-control-sm" name="formula[frecuencia][]" list="listaFrecuencias" maxlength="60" value="<?php echo $fv('frecuencia'); ?>" placeholder="Cada 8 horas"></td>
+                                            <td><input type="number" class="form-control form-control-sm" name="formula[duracion][]" min="1" max="365" value="<?php echo $fv('duracion'); ?>"></td>
+                                            <td><input type="text" class="form-control form-control-sm" name="formula[cantidad][]" maxlength="40" value="<?php echo $fv('cantidad'); ?>" placeholder="15"></td>
+                                            <td><input type="text" class="form-control form-control-sm" name="formula[indicaciones][]" maxlength="255" value="<?php echo $fv('indicaciones'); ?>" placeholder="Con alimentos"></td>
+                                            <td><button type="button" class="btn btn-sm btn-outline-danger quitar-fila" aria-label="Quitar"><i class="bi bi-x-lg"></i></button></td>
+                                        </tr>
+                                    <?php endfor; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-success mb-3" data-agregar="tablaFormula" data-max="<?php echo MAX_ITEMS_FORMULA; ?>"><i class="bi bi-plus-lg"></i> Agregar medicamento</button>
+                            <datalist id="listaMedicamentos"><?php foreach (obtenerCatalogoMedicamentos() as $m): ?><option value="<?php echo htmlspecialchars($m['nombre']); ?>"></option><?php endforeach; ?></datalist>
+                            <datalist id="listaFrecuencias"><?php foreach (frecuenciasDosis() as $fr): ?><option value="<?php echo htmlspecialchars($fr); ?>"></option><?php endforeach; ?></datalist>
+
+                            <label class="form-label fw-semibold d-block"><i class="bi bi-clipboard2-check"></i> Órdenes médicas</label>
+                            <div class="table-responsive mb-2">
+                                <table class="table table-sm align-middle" id="tablaOrdenes">
+                                    <thead><tr><th style="width:220px">Tipo</th><th>Solicitud</th><th>Observación / justificación</th><th></th></tr></thead>
+                                    <tbody>
+                                    <?php for ($i = 0; $i < $filasOrden; $i++): ?>
+                                        <tr>
+                                            <td><select class="form-select form-select-sm" name="orden[tipo][]"><?php foreach (tiposOrden() as $k => $t): ?><option value="<?php echo $k; ?>"<?php echo ($fp['orden']['tipo'][$i] ?? 'laboratorio') === $k ? ' selected' : ''; ?>><?php echo $t; ?></option><?php endforeach; ?></select></td>
+                                            <td><input type="text" class="form-control form-control-sm" name="orden[descripcion][]" list="listaOrdenes" maxlength="255" value="<?php echo htmlspecialchars((string) ($fp['orden']['descripcion'][$i] ?? '')); ?>" placeholder="Ej: Hemograma completo"></td>
+                                            <td><input type="text" class="form-control form-control-sm" name="orden[observacion][]" maxlength="255" value="<?php echo htmlspecialchars((string) ($fp['orden']['observacion'][$i] ?? '')); ?>"></td>
+                                            <td><button type="button" class="btn btn-sm btn-outline-danger quitar-fila" aria-label="Quitar"><i class="bi bi-x-lg"></i></button></td>
+                                        </tr>
+                                    <?php endfor; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-success mb-3" data-agregar="tablaOrdenes" data-max="<?php echo MAX_ORDENES; ?>"><i class="bi bi-plus-lg"></i> Agregar orden</button>
+                            <datalist id="listaOrdenes">
+                                <?php foreach (['Hemograma completo', 'Glicemia en ayunas', 'Hemoglobina glicosilada (HbA1c)', 'Perfil lipídico', 'Creatinina sérica', 'Nitrógeno ureico (BUN)', 'Parcial de orina', 'Urocultivo', 'TSH', 'Proteína C reactiva', 'Prueba de embarazo en sangre', 'Coprológico', 'Radiografía de tórax', 'Ecografía abdominal total', 'Ecografía obstétrica', 'Electrocardiograma', 'Espirometría', 'Interconsulta con Medicina Interna', 'Interconsulta con Pediatría', 'Remisión a Fisioterapia'] as $o): ?><option value="<?php echo $o; ?>"></option><?php endforeach; ?>
+                            </datalist>
+
+                            <div class="row g-3">
+                                <div class="col-md-3">
+                                    <label class="form-label">Incapacidad (días)</label>
+                                    <input type="number" class="form-control" name="incapacidad_dias" id="incDias" min="0" max="<?php echo MAX_DIAS_INCAPACIDAD; ?>" value="<?php echo $val('incapacidad_dias', '0'); ?>">
+                                </div>
+                                <div class="col-md-3" id="incInicioCol">
+                                    <label class="form-label">Desde</label>
+                                    <input type="date" class="form-control" name="incapacidad_inicio" value="<?php echo $val('incapacidad_inicio', date('Y-m-d')); ?>">
                                 </div>
                                 <div class="col-md-3">
-                                    <label class="form-label">Tipo de documento</label>
-                                    <select class="form-select" name="tipo_doc_acompanante">
-                                        <option value="">— Tipo —</option>
-                                        <option value="CC">Cédula de ciudadanía</option>
-                                        <option value="TI">Tarjeta de identidad</option>
-                                        <option value="CE">Cédula de extranjería</option>
-                                        <option value="PAS">Pasaporte</option>
-                                        <option value="PEP">PEP</option>
+                                    <label class="form-label">Control *</label>
+                                    <select class="form-select" name="control_tipo" id="controlTipo">
+                                        <option value="no"<?php echo $sel('control_tipo', 'no', 'dias'); ?>>No requiere</option>
+                                        <option value="dias"<?php echo $sel('control_tipo', 'dias', 'dias'); ?>>En un número de días</option>
+                                        <option value="resultados"<?php echo $sel('control_tipo', 'resultados', 'dias'); ?>>Con resultados de exámenes</option>
                                     </select>
                                 </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Número de documento *</label>
-                                    <input type="text" class="form-control" name="documento_acompanante" id="documentoAcompanante" placeholder="Ej: 1234567890">
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">Parentesco o relación con el paciente *</label>
-                                    <select class="form-select" name="parentesco_acompanante" id="parentescoAcompanante">
-                                        <option value="">— Seleccionar —</option>
-                                        <option value="Padre">Padre</option>
-                                        <option value="Madre">Madre</option>
-                                        <option value="Hijo/a">Hijo/a</option>
-                                        <option value="Cónyuge">Cónyuge / Pareja</option>
-                                        <option value="Hermano/a">Hermano/a</option>
-                                        <option value="Abuelo/a">Abuelo/a</option>
-                                        <option value="Tío/a">Tío/a</option>
-                                        <option value="Tutor legal">Tutor legal</option>
-                                        <option value="Amigo/a">Amigo/a</option>
-                                        <option value="Otro familiar">Otro familiar</option>
-                                        <option value="Otro">Otro</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">Teléfono de contacto *</label>
-                                    <input type="text" class="form-control" name="telefono_acompanante" id="telefonoAcompanante" placeholder="Número celular o fijo">
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">Correo electrónico</label>
-                                    <input type="email" class="form-control" name="correo_acompanante" placeholder="correo@ejemplo.com">
+                                <div class="col-md-3" id="controlDiasCol">
+                                    <label class="form-label">Días para el control</label>
+                                    <input type="number" class="form-control" name="control_dias" min="1" max="365" value="<?php echo $val('control_dias', '30'); ?>">
                                 </div>
                                 <div class="col-12">
-                                    <label class="form-label">Dirección de residencia del acompañante</label>
-                                    <input type="text" class="form-control" name="direccion_acompanante" placeholder="Dirección completa">
+                                    <label class="form-label">Recomendaciones y signos de alarma *</label>
+                                    <textarea class="form-control" name="recomendaciones" rows="3" required placeholder="Cuidados en casa y cuándo consultar por urgencias (fiebre persistente, dificultad para respirar…)"><?php echo $val('recomendaciones'); ?></textarea>
                                 </div>
                             </div>
 
-                            <div class="seccion-titulo"><i class="bi bi-clipboard-pulse"></i> Información médica</div>
-                            <div class="row g-3">
-                                <div class="col-md-4">
-                                    <label class="form-label">Fecha de la consulta *</label>
-                                    <input type="date" class="form-control" name="fecha_consulta" value="<?php echo date('Y-m-d'); ?>" required>
+                            <!-- Firma -->
+                            <div class="firma-medico mt-4">
+                                <div>
+                                    <div class="text-muted small text-uppercase fw-bold">Profesional que atiende</div>
+                                    <strong><?php echo htmlspecialchars($nombreMedicoCompleto); ?></strong> · <?php echo htmlspecialchars($medicoRow[0]['especialidad'] ?? ''); ?>
+                                    <?php if (!empty($medicoRow[0]['licencia_medica'])): ?> · Registro médico <?php echo htmlspecialchars($medicoRow[0]['licencia_medica']); ?><?php endif; ?>
                                 </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">Hora de consulta *</label>
-                                    <input type="time" class="form-control" name="hora_consulta" value="<?php echo date('H:i'); ?>" required>
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">Próxima cita (control)</label>
-                                    <input type="date" class="form-control" name="proxima_cita">
-                                </div>
-                                <div class="col-12">
-                                    <label class="form-label">Motivo de consulta *</label>
-                                    <textarea class="form-control" name="motivo_consulta" rows="2" required placeholder="Describa el motivo de la visita..."><?php echo htmlspecialchars($citaDiagnostico['motivo'] ?? ''); ?></textarea>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Síntomas presentados *</label>
-                                    <textarea class="form-control" name="sintomas" rows="3" required placeholder="Fiebre, dolor, náuseas, fatiga, etc."></textarea>
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Alergias</label>
-                                    <textarea class="form-control" name="alergias" rows="3" placeholder="Medicamentos, alimentos, otros..."><?php echo htmlspecialchars($antecedentesCita['alergias'] ?? ''); ?></textarea>
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Medicamentos que consume</label>
-                                    <textarea class="form-control" name="medicamentos_consume" rows="3" placeholder="Medicamentos actuales del paciente"><?php echo htmlspecialchars($antecedentesCita['medicamentos_habituales'] ?? ''); ?></textarea>
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="checkbox" name="firma" value="1" id="firmaConsulta" required>
+                                    <label class="form-check-label" for="firmaConsulta">Declaro que la información es veraz y firmo electrónicamente esta atención. Una vez firmada no se puede modificar.</label>
                                 </div>
                             </div>
 
-                            <div class="seccion-titulo"><i class="bi bi-activity"></i> Signos vitales</div>
-                            <div class="row g-3">
-                                <div class="col-md-3">
-                                    <label class="form-label">Temperatura</label>
-                                    <div class="input-group">
-                                        <input type="text" class="form-control" name="temperatura" placeholder="36.5" value="<?php echo htmlspecialchars((string) ($signosCita['temperatura'] ?? '')); ?>">
-                                        <span class="input-group-text">°C</span>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Presión arterial</label>
-                                    <div class="input-group">
-                                        <input type="text" class="form-control" name="presion_arterial" placeholder="120/80" value="<?php echo !empty($signosCita['presion_sistolica']) ? (int) $signosCita['presion_sistolica'] . '/' . (int) $signosCita['presion_diastolica'] : ''; ?>">
-                                        <span class="input-group-text">mmHg</span>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Peso</label>
-                                    <div class="input-group">
-                                        <input type="text" class="form-control" name="peso" placeholder="70" value="<?php echo htmlspecialchars((string) ($signosCita['peso'] ?? '')); ?>">
-                                        <span class="input-group-text">kg</span>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <label class="form-label">Estatura</label>
-                                    <div class="input-group">
-                                        <input type="text" class="form-control" name="estatura" placeholder="170" value="<?php echo htmlspecialchars((string) ($signosCita['talla'] ?? '')); ?>">
-                                        <span class="input-group-text">cm</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="seccion-titulo"><i class="bi bi-search"></i> Examen físico</div>
-                            <div class="row g-3">
-                                <div class="col-12">
-                                    <textarea class="form-control" name="examen_fisico" rows="3" required placeholder="Hallazgos del examen físico por sistemas (cabeza, cuello, tórax, abdomen, extremidades)..."></textarea>
-                                </div>
-                            </div>
-
-                            <div class="seccion-titulo"><i class="bi bi-clipboard2-pulse"></i> Diagnóstico</div>
-                            <div class="row g-3">
-                                <div class="col-12">
-                                    <label class="form-label">Diagnóstico principal (CIE-10 / impresión clínica) *</label>
-                                    <textarea class="form-control" name="diagnostico" rows="2" required placeholder="Ej: J06.9 — Infección aguda de vías respiratorias superiores"></textarea>
-                                </div>
-                            </div>
-
-                            <div class="seccion-titulo"><i class="bi bi-file-medical"></i> Exámenes solicitados</div>
-                            <div class="row g-3">
-                                <div class="col-12">
-                                    <textarea class="form-control" name="examenes_solicitados" rows="3" placeholder="Ej: Hemograma completo, glicemia, radiografía de tórax, ecografía..."></textarea>
-                                </div>
-                            </div>
-
-                            <div class="seccion-titulo"><i class="bi bi-capsule"></i> Plan terapéutico</div>
-                            <div class="row g-3">
-                                <div class="col-12">
-                                    <label class="form-label">Tratamiento *</label>
-                                    <textarea class="form-control" name="tratamiento" rows="2" required placeholder="Procedimientos, terapias, reposo, dieta, etc."></textarea>
-                                </div>
-                                <div class="col-12">
-                                    <label class="form-label">Medicamentos formulados</label>
-                                    <textarea class="form-control" name="medicamentos" rows="3" placeholder="Ej: Acetaminofén 500mg — 1 tableta cada 8 horas por 5 días"></textarea>
-                                </div>
-                                <div class="col-12">
-                                    <label class="form-label">Indicaciones y recomendaciones al paciente</label>
-                                    <textarea class="form-control" name="indicaciones" rows="2" placeholder="Reposo, hidratación, signos de alarma, cuándo volver a consultar..."></textarea>
-                                </div>
-                            </div>
-
-                            <div class="d-flex gap-2 mt-4 pt-3 border-top">
-                                <button type="submit" class="btn btn-success btn-lg">
-                                    <i class="bi bi-save"></i> Guardar diagnóstico y cerrar consulta
-                                </button>
-                                <a href="?page=citasPage" class="btn btn-outline-secondary btn-lg">Cancelar</a>
+                            <div class="d-flex flex-wrap gap-2 mt-4 pt-3 border-top">
+                                <button type="submit" class="btn btn-success btn-lg"><i class="bi bi-pen"></i> Firmar y cerrar consulta</button>
+                                <a href="?page=citasPage" class="btn btn-outline-secondary btn-lg">Salir sin guardar</a>
                             </div>
                         </div>
                     </form>
                     <?php elseif (count($citasParaDiagnostico) === 0): ?>
                         <div class="alert alert-warning">
-                            <i class="bi bi-info-circle"></i> No hay citas pendientes o confirmadas. Apruebe una cita desde <strong>Citas Médicas</strong> para registrar un diagnóstico.
+                            <i class="bi bi-info-circle"></i> No tiene pacientes por atender. Cuando Recepción le asigne citas o marque la llegada de un paciente, aparecerán aquí.
                         </div>
                     <?php else: ?>
                         <div class="alert alert-info">
@@ -1135,6 +1042,79 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                     <?php endif; ?>
                 </div>
             </div>
+                <!-- Permisos y novedades de agenda -->
+                <div id="permisosPage" class="page-section">
+                    <h2 class="mb-1"><i class="bi bi-calendar-x"></i> Permisos y novedades de agenda</h2>
+                    <p class="text-muted">Solicite permisos con mínimo <?php echo DIAS_PREAVISO_PERMISO; ?> días de anticipación. La coordinación médica los aprueba; al aprobarse, Recepción mueve sus citas de ese horario y los pacientes aceptan el nuevo turno. Incapacidades y calamidades: avise directamente a la coordinación.</p>
+                    <div class="row g-3">
+                        <div class="col-lg-5">
+                            <div class="card shadow-sm">
+                                <div class="card-header fw-semibold">Nueva solicitud</div>
+                                <div class="card-body">
+                                    <form method="POST" class="row g-3">
+                                        <input type="hidden" name="accion" value="solicitar_permiso">
+                                        <div class="col-12">
+                                            <label class="form-label">Tipo</label>
+                                            <select name="tipo" class="form-select" required>
+                                                <?php foreach (tiposPermiso() as $k => $t): if (in_array($k, ['incapacidad', 'calamidad'], true)) continue; ?><option value="<?php echo $k; ?>"><?php echo e($t); ?></option><?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label">Jornada</label>
+                                            <select name="jornada" class="form-select" id="permJornada" required>
+                                                <?php foreach (jornadasPermiso() as $k => $t): ?><option value="<?php echo $k; ?>"><?php echo e($t); ?></option><?php endforeach; ?>
+                                            </select>
+                                            <div class="form-text">Mañana: turnos antes de las 12:00 m. Tarde: desde las 12:00 m.</div>
+                                        </div>
+                                        <div class="col-sm-6">
+                                            <label class="form-label">Desde</label>
+                                            <input type="date" name="fecha_inicio" id="permInicio" class="form-control" min="<?php echo fechaMinimaPermiso(); ?>" required>
+                                        </div>
+                                        <div class="col-sm-6">
+                                            <label class="form-label">Hasta</label>
+                                            <input type="date" name="fecha_fin" id="permFin" class="form-control" min="<?php echo fechaMinimaPermiso(); ?>">
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label">Motivo</label>
+                                            <textarea name="motivo" class="form-control" rows="3" minlength="10" maxlength="500" required placeholder="Ej: Congreso de medicina interna en Bogotá"></textarea>
+                                        </div>
+                                        <div class="col-12"><button class="btn btn-success w-100"><i class="bi bi-send"></i> Enviar a la coordinación</button></div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-lg-7">
+                            <div class="card shadow-sm">
+                                <div class="card-header fw-semibold">Mis solicitudes</div>
+                                <?php if ($misPermisos): ?>
+                                <div class="list-group list-group-flush">
+                                    <?php foreach ($misPermisos as $p): ?>
+                                    <div class="list-group-item">
+                                        <div class="d-flex justify-content-between flex-wrap gap-2">
+                                            <strong><?php echo e(tiposPermiso()[$p['tipo']] ?? $p['tipo']); ?></strong>
+                                            <?php echo badgeEstadoPermiso($p['estado']); ?>
+                                        </div>
+                                        <div class="small text-muted"><?php echo e(periodoPermiso($p)); ?> · solicitado <?php echo date('d/m/Y', strtotime($p['fecha_solicitud'])); ?></div>
+                                        <div class="small mt-1"><?php echo e($p['motivo']); ?></div>
+                                        <?php if (!empty($p['observacion_revision'])): ?><div class="small mt-1"><strong>Coordinación:</strong> <?php echo e($p['observacion_revision']); ?></div><?php endif; ?>
+                                        <?php if ($p['estado'] === 'aprobado' && $p['citas_afectadas']): ?><div class="small mt-1 text-primary"><?php echo (int) $p['citas_afectadas']; ?> cita(s) enviadas a Recepción para reprogramar.</div><?php endif; ?>
+                                        <?php if ($p['estado'] === 'pendiente'): ?>
+                                        <form method="POST" class="mt-2" onsubmit="return confirm('¿Retirar esta solicitud?')">
+                                            <input type="hidden" name="accion" value="cancelar_permiso">
+                                            <input type="hidden" name="id_permiso" value="<?php echo (int) $p['id_permiso']; ?>">
+                                            <button class="btn btn-sm btn-outline-secondary">Retirar solicitud</button>
+                                        </form>
+                                        <?php endif; ?>
+                                    </div>
+                                    <?php endforeach; ?>
+                                </div>
+                                <?php else: ?>
+                                <div class="panel-empty"><i class="bi bi-calendar-check"></i><p>No ha solicitado permisos.</p></div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             <?php echo panelSeccionesPerfil($usuarioPerfil, $rolLabelModulo, $prefsConfig); ?>
         </main>
     </div>
@@ -1182,9 +1162,59 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
         });
     }
 
+    // Permisos: la media jornada es de un solo día
+    const permJornada = document.getElementById('permJornada'), permInicio = document.getElementById('permInicio'), permFin = document.getElementById('permFin');
+    function ajustarPermiso() {
+        if (!permJornada) return;
+        const medio = permJornada.value !== 'completa';
+        permFin.disabled = medio;
+        if (medio) permFin.value = '';
+        else if (permInicio.value) permFin.min = permInicio.value;
+    }
+    if (permJornada) { permJornada.addEventListener('change', ajustarPermiso); permInicio.addEventListener('change', ajustarPermiso); ajustarPermiso(); }
+
+    // Formulario de consulta: filas de fórmula y órdenes, CIE-10, incapacidad y control
+    document.querySelectorAll('[data-agregar]').forEach(btn => btn.addEventListener('click', () => {
+        const tbody = document.querySelector('#' + btn.dataset.agregar + ' tbody');
+        if (tbody.rows.length >= Number(btn.dataset.max)) return;
+        const fila = tbody.rows[0].cloneNode(true);
+        fila.querySelectorAll('input').forEach(i => { i.value = ''; });
+        fila.querySelectorAll('select').forEach(s => { s.selectedIndex = 0; });
+        tbody.appendChild(fila);
+        fila.querySelector('input').focus();
+    }));
+    document.addEventListener('click', e => {
+        const quitar = e.target.closest('.quitar-fila');
+        if (!quitar) return;
+        const fila = quitar.closest('tr'), tbody = fila.parentElement;
+        if (tbody.rows.length > 1) fila.remove();
+        else fila.querySelectorAll('input').forEach(i => { i.value = ''; });
+    });
+    const dxPrincipal = document.getElementById('dxPrincipal'), dxDesc = document.getElementById('dxDesc');
+    if (dxPrincipal) {
+        const codigos = new Set(Array.from(document.querySelectorAll('#listaCie10 option')).map(o => o.value.split(' ')[0]));
+        const revisarDx = () => {
+            const m = dxPrincipal.value.trim().match(/^([A-Za-z]\d{2}(\.\d{1,2})?)\s*(.*)$/);
+            const fuera = m && !codigos.has(m[1].toUpperCase()) && m[3].replace(/^[—–\-:]\s*/, '').length < 4;
+            dxDesc.style.display = fuera ? '' : 'none';
+            dxDesc.required = !!fuera;
+        };
+        dxPrincipal.addEventListener('input', revisarDx);
+        revisarDx();
+    }
+    const incDias = document.getElementById('incDias'), incInicio = document.getElementById('incInicioCol');
+    const ctrlTipo = document.getElementById('controlTipo'), ctrlDias = document.getElementById('controlDiasCol');
+    const toggles = () => {
+        if (incDias) incInicio.style.display = Number(incDias.value) > 0 ? '' : 'none';
+        if (ctrlTipo) ctrlDias.style.display = ctrlTipo.value === 'dias' ? '' : 'none';
+    };
+    if (incDias) incDias.addEventListener('input', toggles);
+    if (ctrlTipo) ctrlTipo.addEventListener('change', toggles);
+    toggles();
+
     const checkAcompanante = document.getElementById('vieneAcompanado');
     const bloqueAcompanante = document.getElementById('bloqueAcompanante');
-    const camposAcompReq = ['nombreAcompanante', 'documentoAcompanante', 'parentescoAcompanante', 'telefonoAcompanante'];
+    const camposAcompReq = ['nombreAcompanante', 'parentescoAcompanante'];
 
     function toggleAcompanante() {
         if (!checkAcompanante || !bloqueAcompanante) return;

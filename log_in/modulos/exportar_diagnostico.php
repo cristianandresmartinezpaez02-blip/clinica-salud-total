@@ -54,4 +54,26 @@ if (!in_array($formato, ['word', 'pdf', 'ver'], true)) {
     $formato = 'ver';
 }
 
+// Consultas con historia clínica estructurada: historia, fórmula, órdenes o incapacidad
+require_once __DIR__ . '/../conexion/historia_clinica_servicio.php';
+$estructurada = obtenerConsultaClinica($conexion, $idConsulta);
+if ($estructurada) {
+    $doc = (string) ($_GET['doc'] ?? 'historia');
+    if (in_array($rol, ['farmaceuta', 'farmacia'], true) && $doc !== 'formula') {
+        $doc = 'formula'; // farmacia solo ve la fórmula, no la historia completa
+    }
+    $html = htmlDocumentoClinico($estructurada, $doc);
+    if ($formato === 'word') {
+        header('Content-Type: application/vnd.ms-word; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="' . ucfirst($doc) . '_' . $idConsulta . '.doc"');
+    } else {
+        header('Content-Type: text/html; charset=UTF-8');
+        if ($formato === 'pdf') {
+            $html = str_replace('</body>', '<script>window.onload=function(){setTimeout(function(){window.print();},400);}</script></body>', $html);
+        }
+    }
+    echo $html;
+    exit;
+}
+
 enviarDocumentoDiagnostico($consulta, $formato);

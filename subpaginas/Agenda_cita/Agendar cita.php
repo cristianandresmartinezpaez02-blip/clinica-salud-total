@@ -39,8 +39,16 @@ $prefill = [
 ];
 $primerNombre = trim(explode(' ', $u['nombre'] ?? '')[0]);
 
-$categoriasEspecialidades = obtenerCategoriasEspecialidades();
-$todasEspecialidades = obtenerTodasEspecialidades();
+// Solo especialidades con agenda abierta (al menos un médico activo)
+$todasEspecialidades = especialidadesConAgenda($conexion);
+$categoriasEspecialidades = [];
+foreach (obtenerCategoriasEspecialidades() as $key => $cat) {
+    $cat['items'] = array_values(array_intersect($cat['items'], $todasEspecialidades));
+    if ($cat['items']) {
+        $categoriasEspecialidades[$key] = $cat;
+    }
+}
+$primeraCategoria = array_key_first($categoriasEspecialidades);
 
 const MAX_SOLICITUDES_PENDIENTES = 3;
 
@@ -251,6 +259,15 @@ $urlLogin = '../../log_in/log_in.php';
         .turnos__vacio--error { background: #fef2f2; color: #991b1b; }
         .turno { border: 1.5px solid var(--border); background: var(--surface); border-radius: 10px; padding: .6rem .4rem; font-weight: 600; font-size: .9rem; color: var(--text); cursor: pointer; transition: border-color .15s, background .15s, color .15s; }
         .turno:hover { border-color: var(--primary); color: var(--primary); }
+        .dias-cupo { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: .5rem; margin-bottom: 1rem; }
+        .dia-cupo { border: 1.5px solid var(--border); background: var(--surface); border-radius: 10px; padding: .5rem .4rem; text-align: center; cursor: pointer; color: var(--text); line-height: 1.25; }
+        .dia-cupo strong { display: block; font-size: .92rem; }
+        .dia-cupo small { color: var(--muted); font-size: .76rem; }
+        .dia-cupo:hover:not(:disabled) { border-color: var(--primary); }
+        .dia-cupo.is-sel { background: var(--primary); border-color: var(--primary); color: #fff; }
+        .dia-cupo.is-sel small { color: rgba(255,255,255,.85); }
+        .dia-cupo:disabled { opacity: .45; cursor: not-allowed; }
+        .dia-cupo:focus-visible { outline: 3px solid #9cc3ea; outline-offset: 2px; }
         .turno.is-sel { background: var(--primary); border-color: var(--primary); color: #fff; }
         .turno:focus-visible { outline: 3px solid #9cc3ea; outline-offset: 2px; }
         @media (max-width: 576px) { .paciente-resumen { grid-template-columns: 1fr; } }
@@ -600,6 +617,7 @@ $urlLogin = '../../log_in/log_in.php';
     <div class="mb-4 paso-card">
         <div class="section-label">Paso 1</div>
         <div class="section-title">Elige categoría y especialidad</div>
+        <p class="small text-muted mb-3"><i class="bi bi-info-circle"></i> Se muestran las especialidades con agenda abierta. Para otras especialidades comuníquese con recepción.</p>
         <div class="category-tabs" id="categoryTabs">
             <?php $first = true; foreach ($categoriasEspecialidades as $key => $cat): ?>
             <button type="button" class="cat-tab <?php echo $first ? 'active' : ''; ?>" data-cat="<?php echo htmlspecialchars($key); ?>">
@@ -610,7 +628,7 @@ $urlLogin = '../../log_in/log_in.php';
         <div class="services-grid" id="servicesGrid">
             <?php foreach ($categoriasEspecialidades as $key => $cat): ?>
                 <?php foreach ($cat['items'] as $esp): ?>
-                <div class="service-tile" data-servicio="<?php echo htmlspecialchars($esp); ?>" data-cat="<?php echo htmlspecialchars($key); ?>" tabindex="0" role="button" style="<?php echo $key !== 'basicas' ? 'display:none' : ''; ?>">
+                <div class="service-tile" data-servicio="<?php echo htmlspecialchars($esp); ?>" data-cat="<?php echo htmlspecialchars($key); ?>" tabindex="0" role="button" style="<?php echo $key !== $primeraCategoria ? 'display:none' : ''; ?>">
                     <div class="svc-icon"><i class="bi <?php echo iconoEspecialidad($esp); ?>"></i></div>
                     <h6><?php echo htmlspecialchars($esp); ?></h6>
                 </div>
@@ -657,6 +675,8 @@ $urlLogin = '../../log_in/log_in.php';
 
                     <div class="form-section">
                         <div class="form-section-title"><i class="bi bi-calendar3"></i> Día y turno</div>
+                        <label class="d-block fw-semibold small mb-2">Días con cupo <span class="text-muted fw-normal" id="proximaDisp"></span></label>
+                        <div id="diasCupo" class="dias-cupo" aria-live="polite"><p class="turnos__vacio">Elija una especialidad para ver cuándo hay disponibilidad.</p></div>
                         <div class="input-group-custom">
                             <label for="fFecha">Día de la cita *</label>
                             <div class="input-wrap"><i class="bi bi-calendar-event"></i><input type="date" name="fecha" id="fFecha" min="<?php echo date('Y-m-d'); ?>" max="<?php echo date('Y-m-d', strtotime('+' . DIAS_MAX_ANTICIPACION . ' days')); ?>" value="<?php echo e($_POST['fecha'] ?? ''); ?>" required></div>
@@ -750,6 +770,7 @@ $urlLogin = '../../log_in/log_in.php';
         sel.value = name;
         tiles.forEach(t => t.classList.toggle('selected', t.dataset.servicio === name));
         if (formPanel) formPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        cargarDias();
         cargarTurnos();
     }
 
@@ -810,8 +831,56 @@ $urlLogin = '../../log_in/log_in.php';
         }
     }
 
-    if (sel) sel.addEventListener('change', () => { tiles.forEach(t => t.classList.toggle('selected', t.dataset.servicio === sel.value)); cargarTurnos(); });
-    if (fFecha) fFecha.addEventListener('change', cargarTurnos);
+    // Días con cupo: el paciente ve cuándo hay disponibilidad antes de elegir la fecha
+    const cajaDias = document.getElementById('diasCupo');
+    const proximaDisp = document.getElementById('proximaDisp');
+    const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    let consultaDias = 0;
+    function marcarDia() {
+        cajaDias.querySelectorAll('.dia-cupo').forEach(b => b.classList.toggle('is-sel', b.dataset.fecha === fFecha.value));
+    }
+    async function cargarDias() {
+        const servicio = sel ? sel.value : '';
+        proximaDisp.textContent = '';
+        cajaDias.innerHTML = '';
+        const p = document.createElement('p');
+        p.className = 'turnos__vacio';
+        cajaDias.appendChild(p);
+        if (!servicio) { p.textContent = 'Elija una especialidad para ver cuándo hay disponibilidad.'; return; }
+        p.textContent = 'Consultando disponibilidad…';
+        const id = ++consultaDias;
+        try {
+            const res = await fetch(apiUrl + '?' + new URLSearchParams({ servicio, resumen: 14 }), { credentials: 'same-origin' });
+            const data = await res.json();
+            if (id !== consultaDias) return;
+            proximaDisp.textContent = data.mensaje ? '· ' + data.mensaje : '';
+            if (!data.dias || !data.dias.length) { p.textContent = data.mensaje || 'Sin disponibilidad.'; p.classList.add('turnos__vacio--error'); return; }
+            cajaDias.innerHTML = '';
+            data.dias.forEach(d => {
+                const f = new Date(d.fecha + 'T12:00:00');
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'dia-cupo';
+                b.dataset.fecha = d.fecha;
+                b.disabled = d.libres === 0;
+                const s = document.createElement('strong');
+                s.textContent = diasSemana[f.getDay()] + ' ' + f.getDate() + ' ' + meses[f.getMonth()];
+                const sm = document.createElement('small');
+                sm.textContent = d.libres === 0 ? 'Sin cupo' : d.libres + (d.libres === 1 ? ' turno libre' : ' turnos libres');
+                b.append(s, sm);
+                b.addEventListener('click', () => { fFecha.value = d.fecha; marcarDia(); cargarTurnos(); });
+                cajaDias.appendChild(b);
+            });
+            marcarDia();
+        } catch (e) {
+            p.textContent = 'No pudimos consultar la disponibilidad.';
+        }
+    }
+
+    if (sel) sel.addEventListener('change', () => { tiles.forEach(t => t.classList.toggle('selected', t.dataset.servicio === sel.value)); cargarDias(); cargarTurnos(); });
+    if (fFecha) fFecha.addEventListener('change', () => { marcarDia(); cargarTurnos(); });
+    if (sel && sel.value) cargarDias();
     if (sel && sel.value && fFecha && fFecha.value) cargarTurnos();
 
     const formCita = document.getElementById('formCita');

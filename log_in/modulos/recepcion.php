@@ -56,9 +56,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($accion === 'reprogramar_cita') {
-        $res = reprogramarCita($conexion, $idCita, trim($_POST['fecha'] ?? ''), trim($_POST['hora'] ?? ''), (int) ($_POST['id_medico'] ?? 0) ?: null, $_POST['consultorio'] ?? null);
-        if ($res['ok']) {
-            volver('dashboardPage', '✅ ' . $res['msg'], ['fecha' => $_POST['fecha']]);
+        $fechaN = trim($_POST['fecha'] ?? '');
+        $horaN = trim($_POST['hora'] ?? '');
+        $idMedicoN = (int) ($_POST['id_medico'] ?? 0) ?: null;
+        if (($_POST['modo'] ?? 'proponer') === 'aplicar') {
+            // Cambio directo: solo cuando el paciente ya lo aceptó por teléfono o en persona
+            if (empty($_POST['paciente_acepto'])) {
+                volver('reprogramarPage', '❌ Para aplicar el cambio de inmediato confirme que el paciente ya lo aceptó. Si no, envíele la propuesta.', ['reprogramar' => $idCita]);
+            }
+            $res = reprogramarCita($conexion, $idCita, $fechaN, $horaN, $idMedicoN, $_POST['consultorio'] ?? null);
+            if ($res['ok']) {
+                registrarAuditoria($conexion, 'cita_reprogramada', "Cita #{$idCita}: cambio aplicado por {$nombreRecepcion} con aceptación verbal del paciente. Motivo: " . mb_substr(trim($_POST['motivo'] ?? ''), 0, 200), 'cita', $idCita);
+                volver('dashboardPage', '✅ ' . $res['msg'], ['fecha' => $fechaN]);
+            }
+        } else {
+            $res = proponerCambioCita($conexion, $idCita, $fechaN, $horaN, $idMedicoN, $_POST['consultorio'] ?? null, (string) ($_POST['motivo'] ?? ''), $nombreRecepcion . ' (Recepción)');
+            if ($res['ok']) {
+                volver('porReprogramarPage', '✅ ' . $res['msg']);
+            }
         }
         volver('reprogramarPage', '❌ ' . $res['msg'], ['reprogramar' => $idCita]);
     }
@@ -173,6 +188,11 @@ if (isset($_GET['ver'])) {
     $pageRedirect = 'pacientesPage';
 }
 
+$porReprogramar = citasPorReprogramar($conexion);
+$porGestionar = array_values(array_filter($porReprogramar, fn($c) => ($c['propuesta_estado'] ?? '') !== 'pendiente'));
+$avisos = $conexion->query("SELECT mensaje, fecha FROM notificaciones WHERE tipo_usuario = 'recepcion' ORDER BY fecha DESC LIMIT 8")->fetch_all(MYSQLI_ASSOC);
+$especialidadesAgenda = especialidadesConAgenda($conexion);
+
 $citaReprogramar = isset($_GET['reprogramar']) ? obtenerCita($conexion, (int) $_GET['reprogramar']) : null;
 if ($citaReprogramar && !in_array($citaReprogramar['estado'], ['pendiente', 'confirmada'], true)) {
     $citaReprogramar = null;
@@ -180,6 +200,7 @@ if ($citaReprogramar && !in_array($citaReprogramar['estado'], ['pendiente', 'con
 if (isset($_GET['reprogramar'])) {
     $pageRedirect = 'reprogramarPage';
 }
+$medicosReprogramar = $citaReprogramar ? medicosDeEspecialidad($conexion, $citaReprogramar['servicio']) : [];
 
 $meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 $dias = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
@@ -222,6 +243,7 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
       <?php echo panelBrand('Recepción'); ?>
       <a href="#" class="active" data-page="dashboardPage"><i class="bi bi-calendar-day"></i> Agenda del día</a>
       <a href="#" data-page="solicitudesPage"><i class="bi bi-inbox"></i> Solicitudes en línea <?php if ($solicitudes): ?><span class="badge bg-warning text-dark"><?php echo count($solicitudes); ?></span><?php endif; ?></a>
+      <a href="#" data-page="porReprogramarPage"><i class="bi bi-arrow-repeat"></i> Por reprogramar <?php if ($porGestionar): ?><span class="badge bg-danger"><?php echo count($porGestionar); ?></span><?php endif; ?></a>
       <a href="#" data-page="nuevaCitaPage"><i class="bi bi-calendar-plus"></i> Nueva cita</a>
       <a href="#" data-page="pacientesPage"><i class="bi bi-people"></i> Pacientes</a>
       <?php echo panelSidebarFooter(true); ?>
@@ -292,7 +314,9 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                         <td><?php echo e($c['nombre']); ?><br><small class="text-muted"><?php echo e($c['telefono'] ?? ''); ?> · <?php echo e(origenesCita()[$c['origen'] ?? 'web'] ?? 'En línea'); ?></small></td>
                         <td><?php echo e($c['servicio']); ?></td>
                         <td><?php echo e($c['nombre_medico'] ?: '—'); ?><br><small class="text-muted"><?php echo e($c['consultorio'] ?? ''); ?></small></td>
-                        <td><?php echo badgeEstadoCita($est); ?><?php if ($est === 'en_sala' && $c['fecha_llegada']): ?><br><small class="text-muted">llegó <?php echo e($hora12($c['fecha_llegada'])); ?></small><?php endif; ?></td>
+                        <td><?php echo badgeEstadoCita($est); ?><?php if ($est === 'en_sala' && $c['fecha_llegada']): ?><br><small class="text-muted">llegó <?php echo e($hora12($c['fecha_llegada'])); ?></small><?php endif; ?>
+                          <?php if (!empty($c['requiere_reprogramacion']) && in_array($est, ['pendiente', 'confirmada'], true)): ?><br><span class="badge bg-danger mt-1">Por reprogramar</span><?php endif; ?>
+                          <?php if (($c['propuesta_estado'] ?? '') === 'pendiente' && in_array($est, ['pendiente', 'confirmada'], true)): ?><br><span class="badge bg-info text-dark mt-1">Cambio propuesto</span><?php endif; ?></td>
                         <td>
                           <div class="acciones-cita">
                             <?php foreach (transicionesCita()[$est] ?? [] as $sig):
@@ -323,6 +347,51 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
               <div class="panel-empty"><i class="bi bi-calendar2"></i><p>No hay citas para este día.</p></div>
             <?php endif; ?>
           </div>
+
+          <?php if ($avisos): ?>
+          <div class="card mt-4">
+            <div class="card-header"><i class="bi bi-bell me-2"></i>Avisos recientes</div>
+            <ul class="list-group list-group-flush small">
+              <?php foreach ($avisos as $a): ?>
+                <li class="list-group-item d-flex justify-content-between gap-3"><span style="white-space: pre-line"><?php echo e($a['mensaje']); ?></span><span class="text-muted text-nowrap"><?php echo date('d/m g:i a', strtotime($a['fecha'])); ?></span></li>
+              <?php endforeach; ?>
+            </ul>
+          </div>
+          <?php endif; ?>
+        </div>
+
+        <!-- ===================== POR REPROGRAMAR ===================== -->
+        <div id="porReprogramarPage" class="page-section">
+          <div class="panel-page-head">
+            <h2><i class="bi bi-arrow-repeat"></i> Citas por reprogramar</h2>
+            <p>Citas afectadas por un permiso aprobado del médico y cambios que el paciente rechazó. Proponga un nuevo horario: el paciente lo acepta o rechaza desde su portal.</p>
+          </div>
+          <?php if (!$porReprogramar): ?>
+            <div class="card"><div class="panel-empty"><i class="bi bi-check2-circle"></i><p>No hay citas por reprogramar.</p></div></div>
+          <?php else: ?>
+            <div class="card">
+              <div class="table-responsive">
+                <table class="table table-hover mb-0 align-middle">
+                  <thead><tr><th>Cita actual</th><th>Paciente</th><th>Especialidad / médico</th><th>Situación</th><th class="text-end">Acción</th></tr></thead>
+                  <tbody>
+                  <?php foreach ($porReprogramar as $c): ?>
+                    <tr>
+                      <td class="text-nowrap"><strong><?php echo date('d/m/Y', strtotime($c['fecha'])); ?></strong><br><small class="text-muted"><?php echo e($hora12($c['hora'])); ?> · #<?php echo (int) $c['id_cita']; ?></small></td>
+                      <td><?php echo e($c['nombre']); ?><br><small class="text-muted"><?php if (!empty($c['telefono'])): ?><a href="tel:<?php echo e($c['telefono']); ?>"><i class="bi bi-telephone"></i> <?php echo e($c['telefono']); ?></a><?php endif; ?></small></td>
+                      <td><?php echo e($c['servicio']); ?><br><small class="text-muted"><?php echo e($c['nombre_medico'] ?: 'Sin médico'); ?></small></td>
+                      <td>
+                        <?php if (!empty($c['requiere_reprogramacion'])): ?><span class="badge bg-danger">Por reprogramar</span><br><small class="text-muted"><?php echo e($c['motivo_reprogramacion'] ?? ''); ?></small><br><?php endif; ?>
+                        <?php echo etiquetaPropuesta($c['propuesta_estado'] ?? null); ?>
+                        <?php if (($c['propuesta_estado'] ?? '') !== '' && !empty($c['propuesta_fecha'])): ?><br><small class="text-muted">Propuesto: <?php echo e(textoTurno($c['propuesta_fecha'], $c['propuesta_hora'])); ?><?php if (!empty($c['propuesta_fecha_envio'])): ?> · enviado <?php echo date('d/m g:i a', strtotime($c['propuesta_fecha_envio'])); ?><?php endif; ?></small><?php endif; ?>
+                      </td>
+                      <td class="text-end"><a class="btn btn-sm <?php echo ($c['propuesta_estado'] ?? '') === 'pendiente' ? 'btn-outline-primary' : 'btn-primary'; ?>" href="?reprogramar=<?php echo (int) $c['id_cita']; ?>"><?php echo ($c['propuesta_estado'] ?? '') === 'pendiente' ? 'Cambiar propuesta' : 'Proponer horario'; ?></a></td>
+                    </tr>
+                  <?php endforeach; ?>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          <?php endif; ?>
         </div>
 
         <!-- ===================== SOLICITUDES EN LÍNEA ===================== -->
@@ -336,8 +405,7 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
           <?php endif; ?>
           <div class="row g-3">
             <?php foreach ($solicitudes as $c):
-              $sugeridos = array_values(array_filter($medicos, fn($m) => strcasecmp($m['especialidad'], $c['servicio']) === 0));
-              $otros = array_values(array_filter($medicos, fn($m) => strcasecmp($m['especialidad'], $c['servicio']) !== 0));
+              $sugeridos = medicosDeEspecialidad($conexion, $c['servicio']);
               $vencida = $c['fecha'] < $hoy;
             ?>
               <div class="col-lg-6">
@@ -352,7 +420,9 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                     </div>
                     <p class="mb-2"><strong><?php echo e($c['nombre']); ?></strong><br><small class="text-muted"><?php echo e($c['correo'] ?? ''); ?> · <?php echo e($c['telefono'] ?? ''); ?></small></p>
                     <?php if (!empty($c['motivo'])): ?><p class="small bg-light rounded p-2 mb-3"><i class="bi bi-chat-left-text me-1"></i><?php echo e($c['motivo']); ?></p><?php endif; ?>
-                    <?php if (!$vencida): ?>
+                    <?php if (!$vencida && !$sugeridos): ?>
+                      <div class="alert alert-warning small mb-0">No hay médicos activos de <?php echo e($c['servicio']); ?>. Comuníquese con el paciente para cambiar la especialidad o cancelar.</div>
+                    <?php elseif (!$vencida): ?>
                     <form method="POST" class="row g-2 align-items-end">
                       <input type="hidden" name="accion" value="confirmar_cita">
                       <input type="hidden" name="id_cita" value="<?php echo (int) $c['id_cita']; ?>">
@@ -360,8 +430,9 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                         <label class="form-label small">Médico</label>
                         <select name="id_medico" class="form-select form-select-sm" required>
                           <option value="">Seleccione…</option>
-                          <?php if ($sugeridos): ?><optgroup label="<?php echo e($c['servicio']); ?>"><?php foreach ($sugeridos as $m): ?><option value="<?php echo (int) $m['id_usuario']; ?>"><?php echo e($m['nombre']); ?></option><?php endforeach; ?></optgroup><?php endif; ?>
-                          <?php if ($otros): ?><optgroup label="Otros médicos"><?php foreach ($otros as $m): ?><option value="<?php echo (int) $m['id_usuario']; ?>"><?php echo e($m['nombre'] . ($m['especialidad'] ? ' — ' . $m['especialidad'] : '')); ?></option><?php endforeach; ?></optgroup><?php endif; ?>
+                          <?php foreach ($sugeridos as $idM => $nomM): $libre = medicoLibreEnTurno($conexion, $idM, $c['fecha'], $c['hora'], (int) $c['id_cita']); ?>
+                            <option value="<?php echo (int) $idM; ?>"<?php echo $libre ? '' : ' disabled'; ?>><?php echo e($nomM . ($libre ? '' : ' (no disponible a esa hora)')); ?></option>
+                          <?php endforeach; ?>
                         </select>
                       </div>
                       <div class="col-sm-5">
@@ -455,9 +526,9 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                   <label class="form-label">Especialidad</label>
                   <select class="form-select" name="servicio" id="rServicio" required>
                     <option value="">Seleccione…</option>
-                    <?php foreach (obtenerCategoriasEspecialidades() as $cat): ?>
+                    <?php foreach (obtenerCategoriasEspecialidades() as $cat): $items = array_intersect($cat['items'], $especialidadesAgenda); if (!$items) continue; ?>
                       <optgroup label="<?php echo e($cat['titulo']); ?>">
-                        <?php foreach ($cat['items'] as $esp): ?><option><?php echo e($esp); ?></option><?php endforeach; ?>
+                        <?php foreach ($items as $esp): ?><option><?php echo e($esp); ?></option><?php endforeach; ?>
                       </optgroup>
                     <?php endforeach; ?>
                   </select>
@@ -514,7 +585,7 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
         <div id="reprogramarPage" class="page-section">
           <div class="panel-page-head">
             <h2><i class="bi bi-arrow-repeat"></i> Reprogramar cita</h2>
-            <p>Mueva la cita a otro día o turno libre, o cambie el médico. El paciente recibe el aviso.</p>
+            <p>Elija un turno libre y envíe la propuesta: el turno queda apartado y el paciente la acepta o rechaza desde su portal. Si el paciente ya aceptó por teléfono o en persona, aplique el cambio de inmediato.</p>
           </div>
           <?php if ($citaReprogramar): ?>
             <div class="card mb-3"><div class="card-body d-flex flex-wrap gap-4">
@@ -524,21 +595,28 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
               <div><div class="text-muted small">Médico</div><strong><?php echo e($citaReprogramar['nombre_medico'] ?: 'Por asignar'); ?></strong></div>
               <div><div class="text-muted small">Estado</div><?php echo badgeEstadoCita($citaReprogramar['estado']); ?></div>
             </div></div>
+            <?php if (!empty($citaReprogramar['requiere_reprogramacion'])): ?>
+              <div class="alert alert-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i> <?php echo e($citaReprogramar['motivo_reprogramacion'] ?: 'Esta cita debe reprogramarse.'); ?></div>
+            <?php endif; ?>
+            <?php if (!empty($citaReprogramar['propuesta_estado']) && !empty($citaReprogramar['propuesta_fecha'])): ?>
+              <div class="alert alert-light border small"><?php echo etiquetaPropuesta($citaReprogramar['propuesta_estado']); ?> Última propuesta: <?php echo e(textoTurno($citaReprogramar['propuesta_fecha'], $citaReprogramar['propuesta_hora'])); ?> — <?php echo e($citaReprogramar['propuesta_motivo'] ?? ''); ?></div>
+            <?php endif; ?>
             <div class="card"><div class="card-body">
               <form method="POST" class="row g-3" id="formReprogramar">
                 <input type="hidden" name="accion" value="reprogramar_cita">
                 <input type="hidden" name="id_cita" value="<?php echo (int) $citaReprogramar['id_cita']; ?>">
                 <input type="hidden" name="hora" id="rpHora" value="">
                 <input type="hidden" id="rpServicio" value="<?php echo e($citaReprogramar['servicio']); ?>">
+                <input type="hidden" id="rpExcluir" value="<?php echo (int) $citaReprogramar['id_cita']; ?>">
                 <div class="col-md-4">
                   <label class="form-label">Nuevo día</label>
                   <input type="date" class="form-control" name="fecha" id="rpFecha" required min="<?php echo $hoy; ?>" max="<?php echo date('Y-m-d', strtotime('+' . DIAS_MAX_ANTICIPACION . ' days')); ?>">
                 </div>
                 <div class="col-md-4">
                   <label class="form-label">Médico</label>
-                  <select class="form-select" name="id_medico">
-                    <option value="">Mantener <?php echo e($citaReprogramar['nombre_medico'] ?: '(sin asignar)'); ?></option>
-                    <?php foreach ($medicos as $m): ?><option value="<?php echo (int) $m['id_usuario']; ?>"><?php echo e($m['nombre'] . ($m['especialidad'] ? ' — ' . $m['especialidad'] : '')); ?></option><?php endforeach; ?>
+                  <select class="form-select" name="id_medico" id="rpMedico">
+                    <?php if ($citaReprogramar['estado'] === 'pendiente'): ?><option value="">Sin asignar (se confirma después)</option><?php endif; ?>
+                    <?php foreach ($medicosReprogramar as $idM => $nomM): ?><option value="<?php echo (int) $idM; ?>"<?php echo (int) $citaReprogramar['id_medico_usuario'] === $idM ? ' selected' : ''; ?>><?php echo e($nomM); ?></option><?php endforeach; ?>
                   </select>
                 </div>
                 <div class="col-md-4">
@@ -549,9 +627,23 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
                   <label class="form-label">Turnos disponibles</label>
                   <div class="turnos" id="rpTurnos"><p class="turnos__vacio">Elija el nuevo día.</p></div>
                 </div>
-                <div class="col-12 d-flex gap-2">
-                  <button class="btn btn-primary"><i class="bi bi-check2"></i> Reprogramar</button>
-                  <a href="?page=dashboardPage" class="btn btn-outline-secondary">Cancelar</a>
+                <div class="col-12">
+                  <label class="form-label">Motivo del cambio (lo verá el paciente)</label>
+                  <input type="text" class="form-control" name="motivo" maxlength="255" value="<?php echo e(!empty($citaReprogramar['requiere_reprogramacion']) ? 'Novedad en la agenda del médico' : ''); ?>" placeholder="Ej: El médico no atenderá esa tarde por una capacitación">
+                </div>
+                <div class="col-12 d-flex flex-wrap gap-2 align-items-center">
+                  <button class="btn btn-primary" name="modo" value="proponer"><i class="bi bi-send"></i> Enviar propuesta al paciente</button>
+                  <a href="?page=porReprogramarPage" class="btn btn-outline-secondary">Cancelar</a>
+                </div>
+                <div class="col-12">
+                  <details class="border rounded p-3">
+                    <summary class="fw-semibold">El paciente ya aceptó por teléfono o en persona</summary>
+                    <div class="form-check mt-2">
+                      <input class="form-check-input" type="checkbox" name="paciente_acepto" value="1" id="rpAcepto">
+                      <label class="form-check-label" for="rpAcepto">Confirmo que el paciente aceptó el nuevo horario (queda en la auditoría).</label>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm mt-2" name="modo" value="aplicar"><i class="bi bi-check2"></i> Aplicar el cambio ahora</button>
+                  </details>
                 </div>
               </form>
             </div></div>
@@ -661,10 +753,13 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
     function sugerirMedico() {
       let primero = null;
       Array.from(medico.options).forEach(o => {
-        const coincide = o.dataset.especialidad && o.dataset.especialidad.toLowerCase() === serv.value.toLowerCase();
+        if (!o.value) return;
+        const coincide = (o.dataset.especialidad || '').toLowerCase() === serv.value.toLowerCase();
+        o.hidden = !coincide;
+        o.disabled = !coincide;
         if (coincide && !primero) primero = o;
       });
-      if (primero && !medico.value) medico.value = primero.value;
+      medico.value = primero ? primero.value : '';
     }
 
     async function cargar() {
@@ -673,7 +768,9 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
       const id = ++n;
       vacio('Buscando turnos…');
       try {
-        const r = await fetch('../conexion/verificar_disponibilidad.php?' + new URLSearchParams({ servicio: serv.value, fecha: fecha.value }), { credentials: 'same-origin' });
+        const q = { servicio: serv.value, fecha: fecha.value };
+        if (medico.value) q.medico = medico.value;
+        const r = await fetch('../conexion/verificar_disponibilidad.php?' + new URLSearchParams(q), { credentials: 'same-origin' });
         const d = await r.json();
         if (id !== n) return;
         if (!d.ok || !d.turnos.length) { vacio(d.mensaje || 'Sin turnos libres.'); return; }
@@ -687,6 +784,7 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
       } catch (e) { vacio('No se pudo consultar la agenda.'); }
     }
     serv.addEventListener('change', () => { sugerirMedico(); cargar(); });
+    medico.addEventListener('change', cargar);
     fecha.addEventListener('change', cargar);
     document.getElementById('formCitaRecepcion').addEventListener('submit', e => {
       if (!hora.value) { e.preventDefault(); vacio('Seleccione uno de los turnos disponibles.'); caja.scrollIntoView({ behavior: 'smooth', block: 'center' }); cargar(); }
@@ -699,14 +797,18 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
     if (!form) return;
     const fecha = document.getElementById('rpFecha'), hora = document.getElementById('rpHora'), caja = document.getElementById('rpTurnos');
     const servicio = document.getElementById('rpServicio').value;
+    const excluir = document.getElementById('rpExcluir').value;
+    const medico = document.getElementById('rpMedico');
     const vacio = (t) => { caja.innerHTML = ''; const p = document.createElement('p'); p.className = 'turnos__vacio'; p.textContent = t; caja.appendChild(p); };
     const fmt = (h) => { const [a, b] = h.split(':').map(Number); return ((a % 12) || 12) + ':' + String(b).padStart(2, '0') + (a < 12 ? ' a. m.' : ' p. m.'); };
-    fecha.addEventListener('change', async () => {
+    async function cargar() {
       hora.value = '';
       if (!fecha.value) { vacio('Elija el nuevo día.'); return; }
       vacio('Buscando turnos…');
       try {
-        const r = await fetch('../conexion/verificar_disponibilidad.php?' + new URLSearchParams({ servicio, fecha: fecha.value }), { credentials: 'same-origin' });
+        const q = { servicio, fecha: fecha.value, excluir };
+        if (medico && medico.value) q.medico = medico.value;
+        const r = await fetch('../conexion/verificar_disponibilidad.php?' + new URLSearchParams(q), { credentials: 'same-origin' });
         const d = await r.json();
         if (!d.ok || !d.turnos.length) { vacio(d.mensaje || 'Sin turnos libres.'); return; }
         caja.innerHTML = '';
@@ -717,7 +819,9 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
           caja.appendChild(b);
         });
       } catch (e) { vacio('No se pudo consultar la agenda.'); }
-    });
+    }
+    fecha.addEventListener('change', cargar);
+    if (medico) medico.addEventListener('change', cargar);
     form.addEventListener('submit', e => { if (!hora.value) { e.preventDefault(); vacio('Seleccione uno de los turnos disponibles.'); } });
   })();
 </script>

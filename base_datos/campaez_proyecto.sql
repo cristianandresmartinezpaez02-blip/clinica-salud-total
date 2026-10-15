@@ -1108,6 +1108,99 @@ CREATE TABLE IF NOT EXISTS `recuperacion_clave` (
 
 ALTER TABLE `cita` ADD COLUMN `recordatorio_enviado` tinyint(1) NOT NULL DEFAULT 0;
 
+-- Agenda por médico: permisos y propuestas de cambio de cita
+ALTER TABLE `cita`
+  ADD COLUMN `requiere_reprogramacion` tinyint(1) NOT NULL DEFAULT 0,
+  ADD COLUMN `motivo_reprogramacion` varchar(255) DEFAULT NULL,
+  ADD COLUMN `propuesta_fecha` date DEFAULT NULL,
+  ADD COLUMN `propuesta_hora` time DEFAULT NULL,
+  ADD COLUMN `propuesta_id_medico` int(11) DEFAULT NULL,
+  ADD COLUMN `propuesta_consultorio` varchar(50) DEFAULT NULL,
+  ADD COLUMN `propuesta_motivo` varchar(255) DEFAULT NULL,
+  ADD COLUMN `propuesta_estado` varchar(15) DEFAULT NULL,
+  ADD COLUMN `propuesta_fecha_envio` datetime DEFAULT NULL,
+  ADD COLUMN `propuesta_por` varchar(120) DEFAULT NULL;
+
+-- Permisos médicos e historia clínica estructurada (CIE-10, fórmula y órdenes)
+CREATE TABLE IF NOT EXISTS `permiso_medico` (
+  `id_permiso` int(11) NOT NULL AUTO_INCREMENT,
+  `id_medico_usuario` int(11) NOT NULL,
+  `tipo` varchar(30) NOT NULL DEFAULT 'personal',
+  `fecha_inicio` date NOT NULL,
+  `fecha_fin` date NOT NULL,
+  `jornada` varchar(10) NOT NULL DEFAULT 'completa',
+  `motivo` varchar(500) NOT NULL,
+  `estado` varchar(15) NOT NULL DEFAULT 'pendiente',
+  `fecha_solicitud` datetime NOT NULL DEFAULT current_timestamp(),
+  `registrado_por` varchar(120) DEFAULT NULL,
+  `id_revisor` int(11) DEFAULT NULL,
+  `revisado_por` varchar(120) DEFAULT NULL,
+  `fecha_revision` datetime DEFAULT NULL,
+  `observacion_revision` varchar(500) DEFAULT NULL,
+  `citas_afectadas` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id_permiso`),
+  KEY `idx_permiso_medico` (`id_medico_usuario`,`estado`),
+  KEY `idx_permiso_fechas` (`fecha_inicio`,`fecha_fin`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `consulta_clinica` (
+  `id_consulta` int(11) NOT NULL,
+  `id_cita` int(11) DEFAULT NULL,
+  `id_paciente_usuario` int(11) DEFAULT NULL,
+  `id_medico_usuario` int(11) NOT NULL,
+  `tipo_consulta` varchar(20) NOT NULL,
+  `causa_externa` varchar(40) NOT NULL,
+  `acompanante` text DEFAULT NULL,
+  `motivo_consulta` text NOT NULL,
+  `enfermedad_actual` text NOT NULL,
+  `revision_sistemas` text DEFAULT NULL,
+  `antecedentes` text DEFAULT NULL,
+  `antecedentes_otros` text DEFAULT NULL,
+  `id_signos` int(11) DEFAULT NULL,
+  `examen_fisico` text DEFAULT NULL,
+  `analisis` text NOT NULL,
+  `dx_principal_codigo` varchar(10) NOT NULL,
+  `dx_principal_desc` varchar(255) NOT NULL,
+  `dx_tipo` varchar(30) NOT NULL,
+  `dx_relacionados` text DEFAULT NULL,
+  `plan_manejo` text NOT NULL,
+  `recomendaciones` text NOT NULL,
+  `incapacidad_dias` tinyint(4) NOT NULL DEFAULT 0,
+  `incapacidad_inicio` date DEFAULT NULL,
+  `control_texto` varchar(120) DEFAULT NULL,
+  `firmado_por` varchar(150) NOT NULL,
+  `especialidad` varchar(100) DEFAULT NULL,
+  `registro_medico` varchar(50) DEFAULT NULL,
+  `fecha_firma` datetime NOT NULL,
+  `huella` char(64) NOT NULL,
+  PRIMARY KEY (`id_consulta`),
+  KEY `idx_cc_paciente` (`id_paciente_usuario`),
+  KEY `idx_cc_dx` (`dx_principal_codigo`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `formula_item` (
+  `id_item` int(11) NOT NULL AUTO_INCREMENT,
+  `id_consulta` int(11) NOT NULL,
+  `orden` tinyint(4) NOT NULL,
+  `medicamento` varchar(150) NOT NULL,
+  `presentacion` varchar(120) DEFAULT NULL,
+  `dosis` varchar(80) NOT NULL,
+  `via` varchar(30) NOT NULL,
+  `frecuencia` varchar(60) NOT NULL,
+  `duracion_dias` smallint(6) NOT NULL,
+  `cantidad` varchar(40) DEFAULT NULL,
+  `indicaciones` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`id_item`),
+  KEY `idx_fi_consulta` (`id_consulta`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+CREATE TABLE IF NOT EXISTS `orden_medica` (
+  `id_orden` int(11) NOT NULL AUTO_INCREMENT,
+  `id_consulta` int(11) NOT NULL,
+  `tipo` varchar(30) NOT NULL,
+  `descripcion` varchar(255) NOT NULL,
+  `observacion` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`id_orden`),
+  KEY `idx_om_consulta` (`id_consulta`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;

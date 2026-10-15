@@ -19,6 +19,7 @@ require_once "../conexion/citas_servicio.php";
 require_once "../conexion/auth_servicio.php";
 require_once "../conexion/perfil_servicio.php";
 require_once "../conexion/clinica_servicio.php";
+require_once "../conexion/historia_clinica_servicio.php";
 
 asegurarEsquemaNotificaciones($conexion);
 asegurarEsquemaFarmacia($conexion);
@@ -176,6 +177,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'cance
     $pageRedirect = 'citasPage';
 }
 
+// Propuesta de cambio enviada por Recepción: el paciente decide
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'responder_propuesta') {
+    $resProp = responderPropuestaCita($conexion, (int) ($_POST['id_cita'] ?? 0), $idUsuario, ($_POST['respuesta'] ?? '') === 'aceptar');
+    $mensaje = ($resProp['ok'] ? '✅ ' : '❌ ') . $resProp['msg'];
+    $citas = obtenerCitasPaciente($conexion, $idUsuario, $correoPaciente, $nombreCompleto);
+    $pageRedirect = 'citasPage';
+}
+
+// El paciente elige otro turno libre para su cita
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'cambiar_mi_cita') {
+    $resCambio = reprogramarCitaPorPaciente($conexion, (int) ($_POST['id_cita'] ?? 0), $idUsuario, trim($_POST['fecha'] ?? ''), trim($_POST['hora'] ?? ''));
+    $mensaje = ($resCambio['ok'] ? '✅ ' : '❌ ') . $resCambio['msg'];
+    $citas = obtenerCitasPaciente($conexion, $idUsuario, $correoPaciente, $nombreCompleto);
+    $pageRedirect = 'citasPage';
+}
+
+$propuestasPendientes = array_values(array_filter($citas, fn($c) => ($c['propuesta_estado'] ?? '') === 'pendiente' && in_array($c['estado'] ?? '', ['pendiente', 'confirmada'], true)));
+$citasPorCambiar = array_values(array_filter($citas, fn($c) => !empty($c['requiere_reprogramacion']) && ($c['propuesta_estado'] ?? '') !== 'pendiente' && in_array($c['estado'] ?? '', ['pendiente', 'confirmada'], true)));
+
 $proximaCita = null;
 $hoy = date('Y-m-d');
 foreach ($citas as $c) {
@@ -191,6 +211,9 @@ function tituloNotificacion(?string $tipo): string {
         'cita_agendada'    => 'Cita registrada',
         'historia_clinica' => 'Historia clínica',
         'factura_farmacia' => 'Factura farmacia',
+        'cita_propuesta'   => 'Propuesta de cambio de cita',
+        'cita_reprogramar' => 'Su cita debe cambiar de horario',
+        'cita_cancelada'   => 'Cita cancelada',
         default            => 'Aviso',
     };
 }
@@ -201,6 +224,7 @@ function claseNotificacion(?string $tipo): string {
         'cita_agendada'    => 'tipo-agendada',
         'historia_clinica' => 'tipo-historia',
         'factura_farmacia' => 'tipo-factura',
+        'cita_propuesta', 'cita_reprogramar' => 'tipo-agendada',
         default            => '',
     };
 }
@@ -327,6 +351,18 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                 <div id="dashboardPage" class="page-section active">
                     <h2 class="mb-1">Hola, <?php echo htmlspecialchars($primerNombre); ?></h2>
                     <p class="text-muted">Gestiona tus citas, notificaciones e historial médico desde un solo lugar.</p>
+                    <?php foreach ($propuestasPendientes as $pp): ?>
+                        <div class="alert alert-info d-flex flex-wrap justify-content-between align-items-center gap-2">
+                            <span><i class="bi bi-calendar2-week me-1"></i> Recepción propone cambiar su cita de <strong><?php echo htmlspecialchars($pp['servicio']); ?></strong> al <strong><?php echo htmlspecialchars(textoTurno($pp['propuesta_fecha'], $pp['propuesta_hora'])); ?></strong>.</span>
+                            <button class="btn btn-sm btn-primary" onclick="showPage('citasPage')">Revisar propuesta</button>
+                        </div>
+                    <?php endforeach; ?>
+                    <?php foreach ($citasPorCambiar as $pc): ?>
+                        <div class="alert alert-warning d-flex flex-wrap justify-content-between align-items-center gap-2">
+                            <span><i class="bi bi-exclamation-triangle me-1"></i> Su cita de <strong><?php echo htmlspecialchars($pc['servicio']); ?></strong> del <?php echo date('d/m/Y g:i a', strtotime($pc['fecha'] . ' ' . $pc['hora'])); ?> debe cambiar de horario. Elija otro turno o espere la propuesta de recepción.</span>
+                            <button class="btn btn-sm btn-warning" onclick="showPage('citasPage')">Elegir otro turno</button>
+                        </div>
+                    <?php endforeach; ?>
                     <div class="row g-3 mt-2">
                         <div class="col-md-3">
                             <div class="card stat-card bg-success text-white">
@@ -411,6 +447,22 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                                         <td><?php echo date('g:i a', strtotime($row['hora'])); ?></td>
                                         <td><?php echo badgeEstadoCita($row['estado'] ?? 'pendiente'); ?></td>
                                         <td>
+                                            <?php $activa = in_array($row['estado'] ?? '', ['pendiente', 'confirmada'], true); ?>
+                                            <?php if ($activa && ($row['propuesta_estado'] ?? '') === 'pendiente'): ?>
+                                            <div class="propuesta-cita mb-2">
+                                                <div class="fw-bold mb-1"><i class="bi bi-calendar2-week"></i> Propuesta de cambio</div>
+                                                <div class="small">Nuevo horario: <strong><?php echo htmlspecialchars(textoTurno($row['propuesta_fecha'], $row['propuesta_hora'])); ?></strong>
+                                                <?php if (!empty($row['propuesta_id_medico'])): ?><br>Médico: <?php echo htmlspecialchars(nombreMedico($conexion, (int) $row['propuesta_id_medico'])); ?><?php endif; ?>
+                                                <?php if (!empty($row['propuesta_consultorio'])): ?> · Consultorio <?php echo htmlspecialchars($row['propuesta_consultorio']); ?><?php endif; ?>
+                                                <br>Motivo: <?php echo htmlspecialchars($row['propuesta_motivo'] ?? ''); ?></div>
+                                                <div class="d-flex gap-2 mt-2">
+                                                    <form method="POST"><input type="hidden" name="accion" value="responder_propuesta"><input type="hidden" name="id_cita" value="<?php echo (int) $row['id_cita']; ?>"><input type="hidden" name="respuesta" value="aceptar"><button class="btn btn-sm btn-success"><i class="bi bi-check2"></i> Aceptar</button></form>
+                                                    <form method="POST" onsubmit="return confirm('¿Rechazar el nuevo horario?')"><input type="hidden" name="accion" value="responder_propuesta"><input type="hidden" name="id_cita" value="<?php echo (int) $row['id_cita']; ?>"><input type="hidden" name="respuesta" value="rechazar"><button class="btn btn-sm btn-outline-danger">Rechazar</button></form>
+                                                </div>
+                                            </div>
+                                            <?php elseif ($activa && !empty($row['requiere_reprogramacion'])): ?>
+                                            <div class="alert alert-warning small py-2 mb-2"><i class="bi bi-exclamation-triangle"></i> Esta cita debe cambiar de horario por una novedad en la agenda del médico. Elija otro turno con <strong>Cambiar fecha</strong> o espere la propuesta de recepción.</div>
+                                            <?php endif; ?>
                                             <?php if (!empty($row['nombre_medico'])): ?>
                                             <div class="detalle-cita">
                                                 <strong>Médico:</strong> <?php echo htmlspecialchars($row['nombre_medico']); ?><br>
@@ -427,7 +479,8 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                                             <?php endif; ?>
                                         </td>
                                         <td class="text-end">
-                                            <?php if (in_array($row['estado'] ?? '', ['pendiente', 'confirmada'], true) && $row['fecha'] >= date('Y-m-d')): ?>
+                                            <?php if (in_array($row['estado'] ?? '', ['pendiente', 'confirmada'], true) && ($row['fecha'] >= date('Y-m-d') || !empty($row['requiere_reprogramacion']))): ?>
+                                            <button type="button" class="btn btn-sm btn-outline-primary mb-1" data-cambiar-cita="<?php echo (int) $row['id_cita']; ?>" data-servicio="<?php echo htmlspecialchars($row['servicio']); ?>" data-actual="<?php echo htmlspecialchars(textoTurno($row['fecha'], $row['hora'])); ?>"><i class="bi bi-calendar2-week"></i> Cambiar fecha</button>
                                             <form method="POST" onsubmit="return confirm('¿Desea cancelar esta cita?')">
                                                 <input type="hidden" name="accion" value="cancelar_mi_cita">
                                                 <input type="hidden" name="id_cita" value="<?php echo (int) $row['id_cita']; ?>">
@@ -443,6 +496,33 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+
+                <div class="modal fade" id="modalCambiarCita" tabindex="-1" aria-labelledby="tituloCambiarCita" aria-hidden="true">
+                    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                        <form method="POST" class="modal-content" id="formCambiarCita">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="tituloCambiarCita"><i class="bi bi-calendar2-week"></i> Cambiar fecha de la cita</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                            </div>
+                            <div class="modal-body">
+                                <input type="hidden" name="accion" value="cambiar_mi_cita">
+                                <input type="hidden" name="id_cita" id="ccId">
+                                <input type="hidden" name="fecha" id="ccFecha">
+                                <input type="hidden" name="hora" id="ccHora">
+                                <p class="mb-3"><span id="ccServicio" class="fw-bold"></span> · horario actual <span id="ccActual"></span></p>
+                                <label class="form-label fw-semibold">Días con cupo</label>
+                                <div id="ccDias" class="cc-grid mb-3"></div>
+                                <label class="form-label fw-semibold">Turnos libres</label>
+                                <div id="ccTurnos" class="cc-grid"><p class="cc-vacio">Elija un día.</p></div>
+                                <p class="small text-muted mt-3 mb-0"><i class="bi bi-info-circle"></i> Si su médico está libre en el nuevo turno, la cita queda con él. Si no, recepción le asignará otro médico de la misma especialidad.</p>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+                                <button class="btn btn-primary" id="ccGuardar" disabled><i class="bi bi-check2"></i> Cambiar mi cita</button>
+                            </div>
+                        </form>
                     </div>
                 </div>
 
@@ -527,12 +607,27 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                                 <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2 bg-white">
                                     <strong><i class="bi bi-clipboard2-pulse"></i> <?php echo $nomMed ?: 'Médico'; ?></strong>
                                     <div class="d-flex gap-1 flex-wrap">
-                                        <span class="badge bg-success">Consulta finalizada</span>
-                                        <a href="exportar_diagnostico.php?id=<?php echo $cons['id_consulta']; ?>&formato=word" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-word"></i> Word</a>
-                                        <a href="exportar_diagnostico.php?id=<?php echo $cons['id_consulta']; ?>&formato=pdf" target="_blank" class="btn btn-sm btn-outline-danger"><i class="bi bi-file-earmark-pdf"></i> PDF</a>
+                                        <?php echo enlacesDocumentosConsulta($conexion, (int) $cons['id_consulta']); ?>
                                     </div>
                                 </div>
                             <div class="card-body">
+                                <?php $cc = obtenerConsultaClinica($conexion, (int) $cons['id_consulta']); ?>
+                                <?php if ($cc): ?>
+                                <p class="text-muted small mb-2"><i class="bi bi-calendar3"></i> <?php echo date('d/m/Y g:i a', strtotime($cc['fecha_firma'])); ?> · <?php echo htmlspecialchars($cc['servicio'] ?? ''); ?></p>
+                                <p class="mb-2"><span class="badge bg-success-subtle text-success-emphasis me-1"><?php echo htmlspecialchars($cc['dx_principal_codigo']); ?></span><strong><?php echo htmlspecialchars($cc['dx_principal_desc']); ?></strong></p>
+                                <p class="small mb-2"><strong>Motivo:</strong> <?php echo htmlspecialchars($cc['motivo_consulta']); ?></p>
+                                <?php if ($cc['formula']): ?>
+                                <h6 class="text-success mt-3">Medicamentos</h6>
+                                <ul class="small mb-2"><?php foreach ($cc['formula'] as $it): ?><li><?php echo htmlspecialchars(lineaFormula($it)); ?></li><?php endforeach; ?></ul>
+                                <?php endif; ?>
+                                <?php if ($cc['ordenes']): ?>
+                                <h6 class="text-success mt-3">Exámenes y órdenes</h6>
+                                <ul class="small mb-2"><?php foreach ($cc['ordenes'] as $o): ?><li><?php echo htmlspecialchars((tiposOrden()[$o['tipo']] ?? '') . ': ' . $o['descripcion']); ?></li><?php endforeach; ?></ul>
+                                <?php endif; ?>
+                                <h6 class="text-success mt-3">Recomendaciones</h6>
+                                <p class="small mb-1" style="white-space:pre-line;"><?php echo htmlspecialchars($cc['recomendaciones']); ?></p>
+                                <p class="small mb-0"><strong>Control:</strong> <?php echo htmlspecialchars($cc['control_texto']); ?><?php if ((int) $cc['incapacidad_dias'] > 0): ?> · <strong>Incapacidad:</strong> <?php echo (int) $cc['incapacidad_dias']; ?> día(s)<?php endif; ?></p>
+                                <?php else: ?>
                                 <p class="text-muted small mb-2"><i class="bi bi-calendar3"></i> <?php echo date('d/m/Y H:i', strtotime($cons['fecha_consulta'])); ?></p>
                                 <?php if (!empty($cons['especialidad'])): ?>
                                 <p class="mb-2"><strong>Especialidad:</strong> <?php echo htmlspecialchars($cons['especialidad']); ?></p>
@@ -549,6 +644,7 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
                                 </div>
                                 <h6 class="text-success mt-2">Tratamiento</h6>
                                 <p class="small mb-0" style="white-space:pre-line;"><?php echo htmlspecialchars($cons['tratamiento']); ?></p>
+                                <?php endif; ?>
                             </div>
                         </div>
                         <?php endforeach; ?>
@@ -662,6 +758,80 @@ require_once __DIR__ . '/../conexion/perfil_servicio.php';
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<style>
+    .propuesta-cita { background: #eef6ff; border: 1px solid #c9def5; border-radius: 10px; padding: .6rem .8rem; }
+    body.tema-oscuro .propuesta-cita { background: #16263a; border-color: #24405f; }
+    .cc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: .45rem; }
+    .cc-btn { border: 1.5px solid #d5dde8; background: #fff; border-radius: 10px; padding: .45rem .3rem; font-size: .86rem; line-height: 1.25; text-align: center; color: inherit; }
+    .cc-btn small { display: block; color: #64748b; font-size: .74rem; }
+    .cc-btn:hover:not(:disabled) { border-color: #0b5394; }
+    .cc-btn.is-sel { background: #0b5394; border-color: #0b5394; color: #fff; }
+    .cc-btn.is-sel small { color: rgba(255,255,255,.85); }
+    .cc-btn:disabled { opacity: .45; }
+    .cc-vacio { grid-column: 1 / -1; margin: 0; padding: .7rem 1rem; background: #f3f6fa; border-radius: 10px; color: #5b6b80; font-size: .9rem; }
+    body.tema-oscuro .cc-btn { background: #172538; border-color: #2a3b52; }
+    body.tema-oscuro .cc-vacio { background: #172538; color: #a9b8cc; }
+</style>
+<script>
+(function () {
+    const modalEl = document.getElementById('modalCambiarCita');
+    if (!modalEl) return;
+    const modal = new bootstrap.Modal(modalEl);
+    const api = '../conexion/verificar_disponibilidad.php';
+    const dias = document.getElementById('ccDias'), turnos = document.getElementById('ccTurnos');
+    const fId = document.getElementById('ccId'), fFecha = document.getElementById('ccFecha'), fHora = document.getElementById('ccHora');
+    const guardar = document.getElementById('ccGuardar');
+    const nombresDia = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    let servicio = '';
+    const vacio = (caja, t) => { caja.innerHTML = ''; const p = document.createElement('p'); p.className = 'cc-vacio'; p.textContent = t; caja.appendChild(p); };
+    const fmt = (h) => { const [a, b] = h.split(':').map(Number); return ((a % 12) || 12) + ':' + String(b).padStart(2, '0') + (a < 12 ? ' a. m.' : ' p. m.'); };
+    const boton = (titulo, sub) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'cc-btn'; b.textContent = titulo; if (sub) { const s = document.createElement('small'); s.textContent = sub; b.appendChild(s); } return b; };
+
+    async function cargarTurnos(fecha) {
+        fHora.value = ''; guardar.disabled = true; fFecha.value = fecha;
+        vacio(turnos, 'Buscando turnos…');
+        try {
+            const r = await fetch(api + '?' + new URLSearchParams({ servicio, fecha, excluir: fId.value }), { credentials: 'same-origin' });
+            const d = await r.json();
+            if (!d.ok || !d.turnos.length) { vacio(turnos, d.mensaje || 'Sin turnos libres.'); return; }
+            turnos.innerHTML = '';
+            d.turnos.forEach(h => {
+                const b = boton(fmt(h));
+                b.addEventListener('click', () => { turnos.querySelectorAll('.cc-btn').forEach(x => x.classList.remove('is-sel')); b.classList.add('is-sel'); fHora.value = h; guardar.disabled = false; });
+                turnos.appendChild(b);
+            });
+        } catch (e) { vacio(turnos, 'No se pudo consultar la agenda.'); }
+    }
+
+    async function cargarDias() {
+        vacio(dias, 'Consultando disponibilidad…'); vacio(turnos, 'Elija un día.');
+        try {
+            const r = await fetch(api + '?' + new URLSearchParams({ servicio, resumen: 14 }), { credentials: 'same-origin' });
+            const d = await r.json();
+            if (!d.dias || !d.dias.length) { vacio(dias, d.mensaje || 'Sin disponibilidad.'); return; }
+            dias.innerHTML = '';
+            d.dias.forEach(x => {
+                const f = new Date(x.fecha + 'T12:00:00');
+                const b = boton(nombresDia[f.getDay()] + ' ' + f.getDate() + ' ' + meses[f.getMonth()], x.libres ? x.libres + ' libres' : 'Sin cupo');
+                b.disabled = !x.libres;
+                b.addEventListener('click', () => { dias.querySelectorAll('.cc-btn').forEach(y => y.classList.remove('is-sel')); b.classList.add('is-sel'); cargarTurnos(x.fecha); });
+                dias.appendChild(b);
+            });
+        } catch (e) { vacio(dias, 'No se pudo consultar la agenda.'); }
+    }
+
+    document.querySelectorAll('[data-cambiar-cita]').forEach(btn => btn.addEventListener('click', () => {
+        servicio = btn.dataset.servicio;
+        fId.value = btn.dataset.cambiarCita;
+        fFecha.value = ''; fHora.value = ''; guardar.disabled = true;
+        document.getElementById('ccServicio').textContent = servicio;
+        document.getElementById('ccActual').textContent = btn.dataset.actual;
+        cargarDias();
+        modal.show();
+    }));
+})();
+</script>
 <script>
     const links = document.querySelectorAll('.sidebar a[data-page]');
     const sections = document.querySelectorAll('.page-section');

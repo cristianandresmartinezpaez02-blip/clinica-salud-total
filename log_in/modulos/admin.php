@@ -54,6 +54,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'cance
 }
 
 
+// Permisos médicos: la coordinación (administrador) aprueba o rechaza y registra novedades sin preaviso
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'revisar_permiso') {
+    $nombreRevisor = trim(($_SESSION['nombre'] ?? 'Administrador') . ' (Coordinación)');
+    $resPerm = revisarPermiso($conexion, (int) ($_POST['id_permiso'] ?? 0), ($_POST['decision'] ?? '') === 'aprobar', (string) ($_POST['observacion'] ?? ''), (int) $_SESSION['id_usuario'], $nombreRevisor);
+    $mensaje = ($resPerm['ok'] ? '✅ ' : '❌ ') . $resPerm['msg'];
+    $pageRedirect = 'permisosPage';
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'registrar_novedad') {
+    $nombreRevisor = trim(($_SESSION['nombre'] ?? 'Administrador') . ' (Coordinación)');
+    $resPerm = solicitarPermiso($conexion, (int) ($_POST['id_medico'] ?? 0), $_POST, true, $nombreRevisor);
+    $mensaje = ($resPerm['ok'] ? '✅ ' : '❌ ') . $resPerm['msg'];
+    $pageRedirect = 'permisosPage';
+}
+
 if (tableExists($conexion, 'contactos') && isset($_GET['contacto_estado'], $_GET['id'])) {
     $idContacto = intval($_GET['id']);
     $estadoContacto = $_GET['contacto_estado'];
@@ -298,6 +312,8 @@ foreach ($citas as &$citaAdmin) {
 }
 unset($citaAdmin);
 $contactos = obtenerContactos($conexion);
+$permisosPorRevisar = listarPermisos($conexion, ['estado' => 'pendiente']);
+$permisosHistorial = array_values(array_filter(listarPermisos($conexion, [], 40), fn($p) => $p['estado'] !== 'pendiente'));
 $notificaciones = tableExists($conexion, 'notificaciones')
     ? fetchAll($conexion, "SELECT * FROM notificaciones WHERE tipo_usuario IN ('admin', 'sistema') ORDER BY fecha DESC LIMIT 10")
     : [];
@@ -385,6 +401,7 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
         <a href="#" data-page="pacientesPage"><i class="bi bi-person-heart"></i> Pacientes</a>
         <a href="#" data-page="medicosPage"><i class="bi bi-heart-pulse"></i> Médicos</a>
         <a href="#" data-page="citasPage"><i class="bi bi-calendar-check"></i> Citas médicas</a>
+        <a href="#" data-page="permisosPage"><i class="bi bi-calendar-x"></i> Permisos médicos <?php if ($permisosPorRevisar): ?><span class="badge bg-warning text-dark"><?php echo count($permisosPorRevisar); ?></span><?php endif; ?></a>
         <a href="#" data-page="contactosPage"><i class="bi bi-envelope"></i> Mensajes</a>
         <a href="#" data-page="reportesPage"><i class="bi bi-graph-up"></i> Reportes</a>
         <a href="#" data-page="auditoriaPage"><i class="bi bi-shield-lock"></i> Auditoría</a>
@@ -1006,6 +1023,98 @@ require_once __DIR__ . '/../includes/iniciar_perfil_modulo.php';
             </div>
           </div>
         </div>
+          <div id="permisosPage" class="page-section">
+            <div class="panel-page-head">
+              <h2><i class="bi bi-calendar-x"></i> Permisos médicos</h2>
+              <p>Los médicos solicitan permisos con mínimo <?php echo DIAS_PREAVISO_PERMISO; ?> días de anticipación. Al aprobar, el médico sale de la agenda en ese horario y sus citas pasan a Recepción para proponer un nuevo turno al paciente.</p>
+            </div>
+            <h5 class="mb-3">Por revisar (<?php echo count($permisosPorRevisar); ?>)</h5>
+            <?php if (!$permisosPorRevisar): ?>
+              <div class="card mb-4"><div class="panel-empty"><i class="bi bi-check2-circle"></i><p>No hay solicitudes pendientes.</p></div></div>
+            <?php endif; ?>
+            <div class="row g-3 mb-4">
+              <?php foreach ($permisosPorRevisar as $p): $afect = citasAfectadasPorPermiso($conexion, $p); ?>
+                <div class="col-lg-6">
+                  <div class="card h-100">
+                    <div class="card-body">
+                      <div class="d-flex justify-content-between gap-2">
+                        <div>
+                          <h5 class="mb-0"><?php echo htmlspecialchars($p['medico']); ?></h5>
+                          <small class="text-muted"><?php echo htmlspecialchars($p['especialidad']); ?> · solicitud #<?php echo (int) $p['id_permiso']; ?> del <?php echo date('d/m/Y', strtotime($p['fecha_solicitud'])); ?></small>
+                        </div>
+                        <?php echo badgeEstadoPermiso($p['estado']); ?>
+                      </div>
+                      <p class="mt-3 mb-1"><strong><?php echo htmlspecialchars(tiposPermiso()[$p['tipo']] ?? $p['tipo']); ?></strong> — <?php echo htmlspecialchars(periodoPermiso($p)); ?></p>
+                      <p class="small bg-light rounded p-2"><?php echo htmlspecialchars($p['motivo']); ?></p>
+                      <p class="small mb-2"><i class="bi bi-calendar2-range"></i> <strong><?php echo count($afect); ?></strong> cita(s) tendrían que moverse<?php if ($afect): ?>: <?php echo htmlspecialchars(implode(', ', array_map(fn($c) => date('d/m g:i a', strtotime($c['fecha'] . ' ' . $c['hora'])) . ' ' . $c['nombre'], array_slice($afect, 0, 4)))); ?><?php echo count($afect) > 4 ? '…' : ''; ?><?php endif; ?></p>
+                      <form method="POST" class="row g-2">
+                        <input type="hidden" name="accion" value="revisar_permiso">
+                        <input type="hidden" name="id_permiso" value="<?php echo (int) $p['id_permiso']; ?>">
+                        <div class="col-12"><input type="text" name="observacion" class="form-control form-control-sm" maxlength="500" placeholder="Observación para el médico (obligatoria si rechaza)"></div>
+                        <div class="col-6"><button class="btn btn-sm btn-success w-100" name="decision" value="aprobar" onclick="return confirm('¿Aprobar el permiso? Sus citas pasarán a Recepción para reprogramar.')"><i class="bi bi-check2"></i> Aprobar</button></div>
+                        <div class="col-6"><button class="btn btn-sm btn-outline-danger w-100" name="decision" value="rechazar">Rechazar</button></div>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            </div>
+
+            <div class="row g-3">
+              <div class="col-lg-5">
+                <div class="card">
+                  <div class="card-header">Registrar novedad sin preaviso</div>
+                  <div class="card-body">
+                    <p class="small text-muted">Para incapacidades, calamidades u otras ausencias imprevistas. Queda aprobada de inmediato.</p>
+                    <form method="POST" class="row g-2">
+                      <input type="hidden" name="accion" value="registrar_novedad">
+                      <div class="col-12">
+                        <label class="form-label small">Médico</label>
+                        <select name="id_medico" class="form-select form-select-sm" required>
+                          <option value="">Seleccione…</option>
+                          <?php foreach (obtenerMedicos($conexion) as $m): ?><option value="<?php echo (int) $m['id_usuario']; ?>"><?php echo htmlspecialchars($m['nombre'] . ($m['especialidad'] ? ' — ' . $m['especialidad'] : '')); ?></option><?php endforeach; ?>
+                        </select>
+                      </div>
+                      <div class="col-sm-6">
+                        <label class="form-label small">Tipo</label>
+                        <select name="tipo" class="form-select form-select-sm"><?php foreach (tiposPermiso() as $k => $t): ?><option value="<?php echo $k; ?>"<?php echo $k === 'incapacidad' ? ' selected' : ''; ?>><?php echo htmlspecialchars($t); ?></option><?php endforeach; ?></select>
+                      </div>
+                      <div class="col-sm-6">
+                        <label class="form-label small">Jornada</label>
+                        <select name="jornada" class="form-select form-select-sm"><?php foreach (jornadasPermiso() as $k => $t): ?><option value="<?php echo $k; ?>"><?php echo htmlspecialchars($t); ?></option><?php endforeach; ?></select>
+                      </div>
+                      <div class="col-sm-6"><label class="form-label small">Desde</label><input type="date" name="fecha_inicio" class="form-control form-control-sm" min="<?php echo date('Y-m-d'); ?>" required></div>
+                      <div class="col-sm-6"><label class="form-label small">Hasta</label><input type="date" name="fecha_fin" class="form-control form-control-sm" min="<?php echo date('Y-m-d'); ?>"></div>
+                      <div class="col-12"><label class="form-label small">Motivo</label><textarea name="motivo" class="form-control form-control-sm" rows="2" minlength="10" maxlength="500" required></textarea></div>
+                      <div class="col-12"><button class="btn btn-sm btn-primary w-100">Registrar novedad</button></div>
+                    </form>
+                  </div>
+                </div>
+              </div>
+              <div class="col-lg-7">
+                <div class="card">
+                  <div class="card-header">Historial</div>
+                  <div class="table-responsive">
+                    <table class="table table-sm mb-0 align-middle">
+                      <thead><tr><th>Médico</th><th>Periodo</th><th>Tipo</th><th>Estado</th><th>Citas</th></tr></thead>
+                      <tbody>
+                      <?php foreach ($permisosHistorial as $p): ?>
+                        <tr>
+                          <td><?php echo htmlspecialchars($p['medico']); ?></td>
+                          <td class="small"><?php echo htmlspecialchars(periodoPermiso($p)); ?></td>
+                          <td class="small"><?php echo htmlspecialchars(tiposPermiso()[$p['tipo']] ?? $p['tipo']); ?></td>
+                          <td><?php echo badgeEstadoPermiso($p['estado']); ?><?php if (!empty($p['revisado_por'])): ?><br><small class="text-muted"><?php echo htmlspecialchars($p['revisado_por']); ?></small><?php endif; ?></td>
+                          <td><?php echo (int) $p['citas_afectadas']; ?></td>
+                        </tr>
+                      <?php endforeach; ?>
+                      <?php if (!$permisosHistorial): ?><tr><td colspan="5" class="text-center text-muted py-3">Sin registros.</td></tr><?php endif; ?>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
           <div id="reportesPage" class="page-section"><?php echo renderReportes($conexion); ?></div>
           <div id="auditoriaPage" class="page-section"><?php echo renderAuditoria($conexion); ?></div>
           <?php echo panelSeccionesPerfil($usuarioPerfil, $rolLabelModulo, $prefsConfig); ?>
